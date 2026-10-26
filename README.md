@@ -89,18 +89,106 @@ ip=10.0.1.20 ether=0010dc724075 sys=cpu
 	bootf=/amd64/9pc64
 ```
 
-9front ignores attributes it does not know. p9cloud uses such attributes to
-say how it runs each system: as a virtual machine (machine, memory, disks,
-the network it plugs into, the kernel's boot variables) or as a container
-(image, volumes). They are defined and documented as each piece arrives.
+## p9cloud attributes
+
+ndb has no schema. libndb parses any `attr=value` pair, and each program
+asks only for the attributes it needs. So a lab can mix two kinds of
+attributes: classical ndb attributes, which 9front uses, and attributes
+specific to p9cloud, which say how to run a system. Plan 9 programs reading
+the database never ask for p9cloud's attributes and skip them; to those
+programs a lab is an ordinary `/lib/ndb/local`.
+
+A network and a system from a working lab:
+
+```
+ipnet=p9lab ip=10.99.0.0 ipmask=255.255.255.0
+	fs=10.99.0.10 auth=10.99.0.10 ntp=10.99.0.10
+	ini.console=0 ini.sysname=$sys ini.auth=$auth ini.fs=$fs ini.service=cpu
+
+sys=amd ip=10.99.0.11 ether=525400990011 dom=amd.p9lab
+	qemu=qemu-system-x86_64 accel=kvm cpumodel=host mem=2G smp=2
+	bootf=images/9pc64 disk=secrets/amd.nvram virtio=modern tap=p9amd
+	ini.nvram=/dev/sdF0/data
+	ini.nobootprompt="tcp ether /net/ether0 $ip $ipmask"
+	ready=rcpu
+```
+
+The classical attributes are:
+
+- On the network: `ipnet`, `ip` and `ipmask`, plus the network's servers,
+  `fs`, `auth` and `ntp`.
+- On the system: `sys`, `ip`, `ether`, `dom` and `bootf`. `bootf` keeps its
+  ndb meaning, the kernel the system boots. `ether` is the MAC address of
+  the system's network card.
+
+The rest are p9cloud's:
+
+| Attribute | Meaning |
+|---|---|
+| `qemu=` | the system is a QEMU virtual machine, run by this emulator |
+| `accel=`, `cpumodel=`, `mem=`, `smp=` | its accelerator, CPU model, memory and processors |
+| `disk=` | its virtio disks, `sdF0`, `sdF1`, ... in order |
+| `virtio=modern` | modern virtio devices only, without the legacy interface |
+| `tap=` | the host tap device its network card plugs into |
+| `ini.NAME=` | the plan9.ini(8) variable NAME on its kernel command line |
+| `ready=` | the services (named by `tcp=` entries) that answer once it is up |
+
+File names, such as `bootf=` and `disk=`, are paths on the host, relative
+to the lab file.
+
+### Inheritance from the network
+
+ndb lookups are hierarchical and driven by IP address. As ndb(6) puts it, a
+search for an attribute of a system starts at the system's own entry and
+works its way up, bit by bit through its address, through the `ipnet=`
+entries of the networks that contain it. The search for an attribute ends
+when it is found.
+
+amd's address, 10.99.0.11, lies in p9lab's 10.99.0.0/24. So the attributes
+of the `ipnet=p9lab` stanza resolve for amd as if they were in amd's own
+entry: `ini.console=0`, `ini.sysname=$sys`, `ini.auth=$auth`,
+`ini.fs=$fs`, `ini.service=cpu`, and `fs=`, `auth=` and `ntp=` too. With the
+two stanzas above as its database, a 9front system answers:
+
+```
+% ndb/ipquery sys amd ini.console ini.sysname ini.auth ini.fs ini.service ini.nvram ini.nobootprompt
+ini.nvram=/dev/sdF0/data ini.nobootprompt="tcp ether /net/ether0 $ip $ipmask" ini.console=0 ini.sysname=$sys ini.auth=$auth ini.fs=$fs ini.service=cpu
+```
+
+The rules come from libndb's ndbipinfo(2):
+
+- Every system on the network gets the network's attributes, one attribute
+  at a time, and a system's own value wins. With `ini.service=terminal` in
+  its entry, amd would boot as a terminal, and the other systems on p9lab
+  would stay CPU servers.
+- Networks nest. The most specific network (the longest mask) is searched
+  first, and the networks around it fill in whatever is still missing.
+- Inheritance is a property of this lookup, the one `ndb/ipquery` makes, and
+  ndb/cs makes it for dial strings such as `tcp!$auth!ticket`. A plain match
+  sees only amd's own entry: `ndb/query sys amd ini.service` finds nothing.
+  p9cloud always uses the inheriting lookup to find a system's attributes.
+
+### `$attr` in values
+
+9front stores values verbatim and returns them that way; `ndb/ipquery`
+answers `ini.sysname=$sys`. Expansion is p9cloud's own convention. In a
+value, `$NAME` is replaced by attribute NAME as it resolves for the system
+the value is used for. So the one `ini.sysname=$sys` on the network gives
+every system its own name. amd boots with this kernel command line:
+
+```
+console=0 sysname=amd auth=10.99.0.10 fs=10.99.0.10 service=cpu nvram=/dev/sdF0/data nobootprompt='tcp ether /net/ether0 10.99.0.11 255.255.255.0'
+```
 
 ## Principles
 
 - **One source of truth.** The lab file describes the whole lab, both for
   the host and for every system.
 - **Plan 9 semantics, not a lookalike.** For any database, p9cloud's ndb
-  reader must answer every query exactly as 9front's `ndb/ipquery` does. A
-  difference is a bug.
+  reader must answer every query exactly as 9front's `ndb/ipquery` does,
+  inheritance included. A difference is a bug. p9cloud's attributes and its
+  `$attr` expansion only add to ndb; they never change what a 9front
+  program sees.
 - **Topology is data.** Which system serves files, authentication or CPU,
   and to whom, is expressed with the ndb attributes 9front itself uses. To
   change the topology, edit the lab.

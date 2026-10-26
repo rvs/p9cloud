@@ -1,0 +1,5 @@
+ipnet=net ip=10.5.0.0 ipmask=255.255.0.0
+	where=common other=common
+sys=y ip=10.5.0.2
+	where=common-y
+tcp=9fs port=564

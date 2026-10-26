@@ -1,0 +1,86 @@
+# ipinfo sys anna smtp ntp dns auth ipmask
+smtp=smtp.anna ipmask=/24 ntp=ntp.mid dns=10.0.0.53 auth=authbig 
+# ipinfo sys anna sys ip dom smtp ntp dns auth fs flag empty ipnet ipmask
+sys=anna ip=10.1.2.6 dom=anna.big smtp=smtp.anna ipnet=small ipmask=/24 empty= ntp=ntp.mid flag= dns=10.0.0.53 auth=authbig 
+# ipinfo sys bob smtp twinonly fs ipmask ntp flag empty ether
+ether=001122334455 ipmask=255.255.255.240 fs=10.1.2.17 fs=fileserver smtp=smtp.small empty= ntp=ntp.mid flag= 
+# ipinfo sys bob @fs
+fs=10.1.2.17 fs=10.1.2.18 fs=10.1.2.19 
+# ipinfo sys carol ip ntp smtp ipmask dom
+dom=carol.big ip=10.1.3.7 ipmask=255.255.0.0 ntp=ntp.mid smtp=smtp.big 
+# ipinfo sys dave bad ntp ipmask dns
+ipmask=junk bad=yes dns=10.0.0.53 ntp=ntp.big 
+# ipinfo sys dave @ntp @auth @dns
+dns=10.0.0.53 ntp=10.0.0.123 auth=10.0.0.9 
+# ipinfo sys anna @ntp
+
+# ipinfo sys noip ip dom
+
+# ipinfo sys multi tag ip ntp
+ip=10.1.2.30 tag=one ntp=ntp.mid ip=135.104.9.9 tag=two ntp=ntp.classb 
+# ipinfo sys eve quoted hash dom sys ip
+sys=eve ip=10.1.2.40 sys=evealias dom=eve.big quoted="a b#c" hash="x#y" 
+# ipinfo sys evealias sys dom ip quoted
+sys=evealias dom=eve.big quoted="a b#c" ip=10.1.2.40 sys=eve 
+# ipinfo dom eve.big sys ip
+sys=evealias ip=10.1.2.40 sys=eve 
+# ipinfo ip 10.1.2.40 sys dom
+sys=eve sys=evealias dom=eve.big 
+# ipinfo ip 10.1.2.6 sys smtp
+sys=anna smtp=smtp.anna 
+# ipinfo ip 10.1.2.99 smtp ntp ipmask
+ipmask=/24 smtp=smtp.small ntp=ntp.mid 
+# ipinfo ip 10.200.0.1 ipmask ntp
+ntp=ntp.big ipmask=/104 
+# ipinfo ip 172.16.1.1 ipmask ntp
+ipmask=/112 
+# ipinfo ip 2001:db8:1:2::77 ipmask ntp smtp
+ipmask=ffff:ffff:ffff:ffff:: smtp=smtp.v6sub ntp=ntp.v6 
+# ipinfo ip 2001:db8:9::1 ipmask ntp smtp
+ipmask=/32 ntp=ntp.v6 
+# ipinfo sys v6host ntp smtp ipmask ipnet
+ipnet=v6sub ipmask=ffff:ffff:ffff:ffff:: smtp=smtp.v6sub ntp=ntp.v6 
+# ipinfo sys dup smtp
+smtp=smtp.small 
+# ipinfo sys dup2 tag
+tag=x tag=y 
+# ipinfo sys longattr abcdefghijklmnopqrstuvwxyz01234 abcdefghijklmnopqrstuvwxyz0123456789
+abcdefghijklmnopqrstuvwxyz01234=long 
+# ipinfo sys classc ntp ipmask
+ntp=ntp.classc ipmask=/120 
+# ipinfo sys v4in6 smtp ip ipmask
+ip=::ffff:10.1.2.60 ipmask=/24 smtp=smtp.small 
+# ipinfo sys shorthand ntp ip smtp
+ip=10.1.2 ntp=ntp.big smtp=smtp.big 
+# ipinfo sys hexip fs ip
+ip=0x0a.1.2.0x11 fs=10.1.2.17 fs=fileserver 
+# ipinfo sys badip ip ntp
+
+# ipinfo sys nosuch ip
+
+# ipinfo sys anna sys sys
+sys=anna 
+# ipinfo sys frank tag
+tag=frank 
+# ipinfo sys gina tag
+
+# ipinfo sys orphan tag ip
+ip=10.1.2.72 tag=orphan 
+# ipinfo sys hal spaced nospace after
+spaced=yes nospace= after= 
+# ipinfo sys ivy note comment here q
+note= q="open quote" 
+# ipinfo sys crlf tag ip
+ip=10.1.2.75 tag=crlf 
+# ipinfo ip 10.1.2.70 noattr
+
+# order1 sys x where other
+where=local 
+# order1 sys y where other
+where=common-y 
+# order1 ip 10.5.9.9 where tcp port
+where=local 
+# order2 sys x where
+where=second 
+# nonl sys z a b
+a=1 

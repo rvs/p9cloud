@@ -1,0 +1,72 @@
+# Conformance database: 9front's ndb/ipquery answers to queries are in
+# ../ipquery.out.  It has nested, twin and classful networks, a bad mask,
+# IPv6, systems over several entries and lines, and odd syntax.
+
+ipnet=big ip=10.0.0.0
+	dns=10.0.0.53 ntp=ntp.big auth=authbig
+	smtp=smtp.big
+ipnet=mid ip=10.1.0.0 ipmask=255.255.0.0
+	ntp=ntp.mid
+	flag
+ipnet=small ip=10.1.2.0 ipmask=/24
+	smtp=smtp.small
+	empty=
+ipnet=twin ip=10.1.2.0 ipmask=255.255.255.0
+	smtp=smtp.twin twinonly=yes
+ipnet=tiny ip=10.1.2.16 ipmask=255.255.255.240
+	fs=10.1.2.17 fs=fileserver
+ipnet=badmask ip=10.9.0.0 ipmask=junk
+	bad=yes
+ipnet=classb ip=135.104.0.0
+	ntp=ntp.classb
+ipnet=classc ip=192.168.7.0
+	ntp=ntp.classc
+ipnet=v6 ip=2001:db8:: ipmask=/32
+	ntp=ntp.v6
+ipnet=v6sub ip=2001:db8:1:2:: ipmask=ffff:ffff:ffff:ffff::
+	smtp=smtp.v6sub
+
+sys=anna ip=10.1.2.6 dom=anna.big
+	smtp=smtp.anna
+sys=bob ip=10.1.2.20 ether=001122334455
+sys=carol dom=carol.big
+	ip=10.1.3.7
+sys=dave ip=10.9.1.1
+sys=noip dom=noip.big
+sys=multi ip=10.1.2.30
+	tag=one
+sys=multi ip=135.104.9.9
+	tag=two
+sys=fileserver ip=10.1.2.18
+sys=fileserver ip=10.1.2.19
+sys=authbig ip=10.0.0.9
+sys=ntpbox dom=ntp.big ip=10.0.0.123
+ip=10.1.2.40 sys=eve
+	sys=evealias dom=eve.big
+	quoted="a b#c" hash=x#y
+sys=v6host ip=2001:db8:1:2::5
+sys=dup ip=10.1.2.50 smtp=smtp.small
+sys=dup2 ip=10.1.2.51
+	tag=x tag=x tag=y
+sys=longattr ip=10.1.2.52
+	abcdefghijklmnopqrstuvwxyz0123456789=long
+sys=classc ip=192.168.7.9
+sys=v4in6 ip=::ffff:10.1.2.60
+sys=shorthand ip=10.1.2
+sys=hexip ip=0x0a.1.2.0x11
+sys=badip ip=10.1.2.x
+sys=frank ip=10.1.2.70
+# a comment does not end an entry
+	   
+	tag=frank
+
+sys=gina ip=10.1.2.71
+
+	tag=orphan sys=orphan ip=10.1.2.72
+sys=hal ip=10.1.2.73
+	spaced =yes  nospace= after
+sys=ivy ip=10.1.2.74 note=#comment here
+	q="open quote
+=noattr
+sys=crlf ip=10.1.2.75
+	tag=crlf

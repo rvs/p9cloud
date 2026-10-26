@@ -1,0 +1,13 @@
+#!/bin/rc
+# Run on 9front in this directory: rc ipquery.rc >ipquery.out
+# Each query line is DIR ATTR VALUE RATTR...; DIR is bound on /lib/ndb so
+# that a database= entry's file=/lib/ndb/NAME is DIR/NAME.
+rfork en
+here=`{pwd}
+cat queries | while(q=`{read}){
+	if(! ~ $q(1) '#'*){
+		echo '#' $q
+		bind $here/$q(1) /lib/ndb
+		ndb/ipquery -f /lib/ndb/local $q(2-)
+	}
+}

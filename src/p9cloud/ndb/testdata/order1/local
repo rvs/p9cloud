@@ -1,0 +1,8 @@
+database=
+	file=/lib/ndb/local
+	file=/lib/ndb/common
+	file=/lib/ndb/missing
+
+ipnet=net ip=10.5.0.0 ipmask=255.255.0.0
+	where=local
+sys=x ip=10.5.0.1

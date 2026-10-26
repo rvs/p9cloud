@@ -1,0 +1,45 @@
+# DIR ATTR VALUE RATTR...: ndb/ipquery -f /lib/ndb/local ATTR VALUE RATTR...
+# with DIR bound on /lib/ndb.  9front's answers are in ipquery.out.
+ipinfo sys anna smtp ntp dns auth ipmask
+ipinfo sys anna sys ip dom smtp ntp dns auth fs flag empty ipnet ipmask
+ipinfo sys bob smtp twinonly fs ipmask ntp flag empty ether
+ipinfo sys bob @fs
+ipinfo sys carol ip ntp smtp ipmask dom
+ipinfo sys dave bad ntp ipmask dns
+ipinfo sys dave @ntp @auth @dns
+ipinfo sys anna @ntp
+ipinfo sys noip ip dom
+ipinfo sys multi tag ip ntp
+ipinfo sys eve quoted hash dom sys ip
+ipinfo sys evealias sys dom ip quoted
+ipinfo dom eve.big sys ip
+ipinfo ip 10.1.2.40 sys dom
+ipinfo ip 10.1.2.6 sys smtp
+ipinfo ip 10.1.2.99 smtp ntp ipmask
+ipinfo ip 10.200.0.1 ipmask ntp
+ipinfo ip 172.16.1.1 ipmask ntp
+ipinfo ip 2001:db8:1:2::77 ipmask ntp smtp
+ipinfo ip 2001:db8:9::1 ipmask ntp smtp
+ipinfo sys v6host ntp smtp ipmask ipnet
+ipinfo sys dup smtp
+ipinfo sys dup2 tag
+ipinfo sys longattr abcdefghijklmnopqrstuvwxyz01234 abcdefghijklmnopqrstuvwxyz0123456789
+ipinfo sys classc ntp ipmask
+ipinfo sys v4in6 smtp ip ipmask
+ipinfo sys shorthand ntp ip smtp
+ipinfo sys hexip fs ip
+ipinfo sys badip ip ntp
+ipinfo sys nosuch ip
+ipinfo sys anna sys sys
+ipinfo sys frank tag
+ipinfo sys gina tag
+ipinfo sys orphan tag ip
+ipinfo sys hal spaced nospace after
+ipinfo sys ivy note comment here q
+ipinfo sys crlf tag ip
+ipinfo ip 10.1.2.70 noattr
+order1 sys x where other
+order1 sys y where other
+order1 ip 10.5.9.9 where tcp port
+order2 sys x where
+nonl sys z a b

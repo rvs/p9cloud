@@ -167,7 +167,18 @@ and keeps only the binary. Every build from scratch makes the same
 binary, byte for byte.
 
 `src/` is the program, `authsrv.c` a port of 9front's
-`/sys/src/cmd/auth/authsrv.c`. `lib/` is the subset of drawterm's
+`/sys/src/cmd/auth/authsrv.c` as last changed in fd800c4a6
+(2018-07-11), still current at
+[9front](https://git.9front.org/plan9front/9front) b0ef07d62
+(2026-10-26); the key file and nvram code follows `keyfs.c` and
+`wrkey` of that tree. `lib/` is the subset of drawterm's
 libraries it links (libc, libsec, libmp, libauthsrv), unmodified, from
 [drawterm](https://git.9front.org/plan9front/drawterm) 3aa7ce0c;
 see `lib/LICENSE`.
+
+To catch up with upstream, see what changed since:
+
+```sh
+git log b0ef07d62..front -- sys/src/cmd/auth sys/src/libauthsrv sys/include/authsrv.h  # 9front: port by hand
+git log 3aa7ce0c..front -- libc libsec libmp libauthsrv include args.h posix-port     # drawterm: copy, make test
+```

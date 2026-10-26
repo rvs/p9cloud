@@ -42,7 +42,9 @@ usage: 9front-auth [-d dir] command [args]
   nvram     [-l] hostowner            write the nvram of a cpu server
   health    [addr]                    exit 0 if the server answers on addr
 dir holds the keys (/var/lib/9front-auth).  Passwords come from $PASS, else
-standard input; -l adds p9sk1 (DES) keys and tickets.
+standard input.
+-l (legacy): p9sk1 (DES) too, for clients without dp9ik.  It takes serve -l and
+keys made with -l; off by default, as its tickets let eavesdroppers guess passwords.
 ```
 
 The default command is `serve`. Every command takes its arguments from

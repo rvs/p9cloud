@@ -42,7 +42,10 @@ help(int fd)
 	for(c = cmds; c < cmds+nelem(cmds); c++)
 		fprint(fd, "  %-9s %-25s %s\n", c->name, c->args, c->help);
 	fprint(fd, "dir holds the keys (%s).  Passwords come from $PASS, else\n"
-		"standard input; -l adds p9sk1 (DES) keys and tickets.\n", authdir);
+		"standard input.\n"
+		"-l (legacy): p9sk1 (DES) too, for clients without dp9ik.  It takes serve -l and\n"
+		"keys made with -l; off by default, as its tickets let eavesdroppers guess passwords.\n",
+		authdir);
 }
 
 void

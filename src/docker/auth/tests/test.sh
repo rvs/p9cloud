@@ -12,6 +12,8 @@ ok()	{ if "$@" >$D/out 2>&1; then :; else echo "FAIL: $*"; cat $D/out; fails=$((
 no()	{ if "$@" >$D/out 2>&1; then echo "FAIL (should fail): $*"; fails=$((fails+1)); fi; }
 has()	{ grep -q "$1" $D/out || { echo "FAIL: no '$1' in output of last command"; cat $D/out; fails=$((fails+1)); }; }
 
+ok $B help;					has '^-l (legacy): p9sk1 (DES) too'
+has '^keys made with -l; off by default'
 no $A list;					has 'no domain'
 ok $A init -r glenda test
 no $A init -r glenda test;			has 'already has a domain'

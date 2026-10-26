@@ -1,0 +1,42 @@
+sys=fs: p9.lab:19, qemu
+	sys=fs
+	ip=10.99.0.10
+	ether=525400990010
+	dom=fs.p9lab
+	qemu=qemu-system-x86_64
+	accel=kvm
+	cpumodel=host
+	mem=1536
+	smp=2
+	bootf=images/9pc64
+	disk=images/fs-os.qcow2
+	disk=images/shared.qcow2
+	virtio=transitional
+	tap=p9fs
+	ini.nobootprompt=local!/dev/sdF0/fs
+	ini.nvram=/dev/sdF0/nvram
+	setup.service=terminal
+	setup.user=glenda
+	ready=9fs
+	ready=ticket
+	ipnet=p9lab                          from ipnet=p9lab
+	ipmask=255.255.255.0                 from ipnet=p9lab
+	fs=10.99.0.10                        from ipnet=p9lab
+	auth=10.99.0.10                      from ipnet=p9lab
+	ntp=10.99.0.10                       from ipnet=p9lab
+	ini.console=0                        from ipnet=p9lab
+	ini.sysname=$sys                     from ipnet=p9lab
+	ini.auth=$auth                       from ipnet=p9lab
+	ini.fs=$fs                           from ipnet=p9lab
+	ini.service=cpu                      from ipnet=p9lab
+kernel:
+	console=0                        ipnet=p9lab
+	sysname=fs                       ipnet=p9lab
+	auth=10.99.0.10                  ipnet=p9lab
+	fs=10.99.0.10                    ipnet=p9lab
+	service=cpu                      ipnet=p9lab
+	nobootprompt=local!/dev/sdF0/fs  sys=fs
+	nvram=/dev/sdF0/nvram            sys=fs
+command:
+	qemu-system-x86_64 -enable-kvm -cpu host -m 1536 -smp 2 -kernel $LAB/images/9pc64 -append 'console=0 sysname=fs auth=10.99.0.10 fs=10.99.0.10 service=cpu nobootprompt=local!/dev/sdF0/fs nvram=/dev/sdF0/nvram' -drive file=$LAB/images/fs-os.qcow2,if=virtio,format=qcow2 -drive file=$LAB/images/shared.qcow2,if=virtio,format=qcow2 -netdev tap,id=lab,ifname=p9fs,script=no,downscript=no -device virtio-net-pci,netdev=lab,mac=52:54:00:99:00:10 -display none -monitor unix:$LAB/state/fs/monitor.sock,server=on,wait=off -chardev socket,id=s,path=$LAB/state/fs/serial.sock,server=on,wait=off,logfile=$LAB/state/fs/console.log -serial chardev:s
+unit: p9lab-fs.service

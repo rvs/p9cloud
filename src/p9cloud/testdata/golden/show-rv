@@ -1,0 +1,40 @@
+sys=rv: p9.lab:34, qemu
+	sys=rv
+	ip=10.99.0.12
+	ether=525400990012
+	dom=rv.p9lab
+	qemu=qemu-system-riscv64
+	accel=tcg
+	machine=virt
+	mem=2G
+	smp=2
+	cpumodel=rv64,svpbmt=true,zicbom=true
+	bios=images/opensbi.bin
+	bootf=images/9rv64
+	disk=secrets/rv.nvram
+	virtio=modern
+	tap=p9rv
+	ini.nvram=/dev/sdF0/data
+	ini.nobootprompt="tcp ether /net/ether0 $ip $ipmask"
+	ready=rcpu
+	ipnet=p9lab                                           from ipnet=p9lab
+	ipmask=255.255.255.0                                  from ipnet=p9lab
+	fs=10.99.0.10                                         from ipnet=p9lab
+	auth=10.99.0.10                                       from ipnet=p9lab
+	ntp=10.99.0.10                                        from ipnet=p9lab
+	ini.console=0                                         from ipnet=p9lab
+	ini.sysname=$sys                                      from ipnet=p9lab
+	ini.auth=$auth                                        from ipnet=p9lab
+	ini.fs=$fs                                            from ipnet=p9lab
+	ini.service=cpu                                       from ipnet=p9lab
+kernel:
+	console=0                                                      ipnet=p9lab
+	sysname=rv                                                     ipnet=p9lab
+	auth=10.99.0.10                                                ipnet=p9lab
+	fs=10.99.0.10                                                  ipnet=p9lab
+	service=cpu                                                    ipnet=p9lab
+	nvram=/dev/sdF0/data                                           sys=rv
+	nobootprompt='tcp ether /net/ether0 10.99.0.12 255.255.255.0'  sys=rv
+command:
+	qemu-system-riscv64 -M virt -cpu rv64,svpbmt=true,zicbom=true -m 2G -smp 2 -bios $LAB/images/opensbi.bin -kernel $LAB/images/9rv64 -append 'console=0 sysname=rv auth=10.99.0.10 fs=10.99.0.10 service=cpu nvram=/dev/sdF0/data nobootprompt='"'"'tcp ether /net/ether0 10.99.0.12 255.255.255.0'"'"'' -drive file=$LAB/secrets/rv.nvram,if=none,id=sdF0,format=raw -device virtio-blk-pci,drive=sdF0,disable-legacy=on -netdev tap,id=lab,ifname=p9rv,script=no,downscript=no -device virtio-net-pci,netdev=lab,mac=52:54:00:99:00:12,disable-legacy=on -display none -monitor unix:$LAB/state/rv/monitor.sock,server=on,wait=off -chardev socket,id=s,path=$LAB/state/rv/serial.sock,server=on,wait=off,logfile=$LAB/state/rv/console.log -serial chardev:s
+unit: p9lab-rv.service, needs p9lab-fs.service

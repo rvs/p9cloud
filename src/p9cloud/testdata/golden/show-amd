@@ -1,0 +1,38 @@
+sys=amd: p9.lab:27, qemu
+	sys=amd
+	ip=10.99.0.11
+	ether=525400990011
+	dom=amd.p9lab
+	qemu=qemu-system-x86_64
+	accel=kvm
+	cpumodel=host
+	mem=2G
+	smp=2
+	bootf=images/9pc64
+	disk=secrets/amd.nvram
+	virtio=modern
+	tap=p9amd
+	ini.nvram=/dev/sdF0/data
+	ini.nobootprompt="tcp ether /net/ether0 $ip $ipmask"
+	ready=rcpu
+	ipnet=p9lab                                           from ipnet=p9lab
+	ipmask=255.255.255.0                                  from ipnet=p9lab
+	fs=10.99.0.10                                         from ipnet=p9lab
+	auth=10.99.0.10                                       from ipnet=p9lab
+	ntp=10.99.0.10                                        from ipnet=p9lab
+	ini.console=0                                         from ipnet=p9lab
+	ini.sysname=$sys                                      from ipnet=p9lab
+	ini.auth=$auth                                        from ipnet=p9lab
+	ini.fs=$fs                                            from ipnet=p9lab
+	ini.service=cpu                                       from ipnet=p9lab
+kernel:
+	console=0                                                      ipnet=p9lab
+	sysname=amd                                                    ipnet=p9lab
+	auth=10.99.0.10                                                ipnet=p9lab
+	fs=10.99.0.10                                                  ipnet=p9lab
+	service=cpu                                                    ipnet=p9lab
+	nvram=/dev/sdF0/data                                           sys=amd
+	nobootprompt='tcp ether /net/ether0 10.99.0.11 255.255.255.0'  sys=amd
+command:
+	qemu-system-x86_64 -enable-kvm -cpu host -m 2G -smp 2 -kernel $LAB/images/9pc64 -append 'console=0 sysname=amd auth=10.99.0.10 fs=10.99.0.10 service=cpu nvram=/dev/sdF0/data nobootprompt='"'"'tcp ether /net/ether0 10.99.0.11 255.255.255.0'"'"'' -drive file=$LAB/secrets/amd.nvram,if=none,id=sdF0,format=raw -device virtio-blk-pci,drive=sdF0,disable-legacy=on -netdev tap,id=lab,ifname=p9amd,script=no,downscript=no -device virtio-net-pci,netdev=lab,mac=52:54:00:99:00:11,disable-legacy=on -display none -monitor unix:$LAB/state/amd/monitor.sock,server=on,wait=off -chardev socket,id=s,path=$LAB/state/amd/serial.sock,server=on,wait=off,logfile=$LAB/state/amd/console.log -serial chardev:s
+unit: p9lab-amd.service, needs p9lab-fs.service

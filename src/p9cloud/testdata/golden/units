@@ -1,0 +1,104 @@
+# /etc/systemd/system/p9lab-network.service
+[Unit]
+Description=p9lab bridge p9br and tap devices
+Before=p9lab-fs.service p9lab-amd.service p9lab-rv.service p9lab-auth.service
+
+[Service]
+Type=oneshot
+ExecStart=$BIN -f $LAB/p9.lab net
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/p9lab-fs.service
+[Unit]
+Description=p9lab fs (qemu 10.99.0.10)
+Requires=p9lab-network.service
+After=p9lab-network.service
+
+[Service]
+Type=simple
+User=$USER
+Group=$GROUP
+SupplementaryGroups=kvm
+WorkingDirectory=$LAB
+ExecStart=$BIN -f $LAB/p9.lab start fs
+ExecStartPost=$BIN -f $LAB/p9.lab wait fs
+ExecStop=$BIN -f $LAB/p9.lab stop fs
+TimeoutStartSec=120
+TimeoutStopSec=120
+Restart=no
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/p9lab-amd.service
+[Unit]
+Description=p9lab amd (qemu 10.99.0.11)
+Requires=p9lab-network.service p9lab-fs.service
+After=p9lab-network.service p9lab-fs.service
+
+[Service]
+Type=simple
+User=$USER
+Group=$GROUP
+SupplementaryGroups=kvm
+WorkingDirectory=$LAB
+ExecStart=$BIN -f $LAB/p9.lab start amd
+ExecStartPost=$BIN -f $LAB/p9.lab wait amd
+ExecStop=$BIN -f $LAB/p9.lab stop amd
+TimeoutStartSec=120
+TimeoutStopSec=120
+Restart=no
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/p9lab-rv.service
+[Unit]
+Description=p9lab rv (qemu 10.99.0.12)
+Requires=p9lab-network.service p9lab-fs.service
+After=p9lab-network.service p9lab-fs.service
+
+[Service]
+Type=simple
+User=$USER
+Group=$GROUP
+WorkingDirectory=$LAB
+ExecStart=$BIN -f $LAB/p9.lab start rv
+ExecStartPost=$BIN -f $LAB/p9.lab wait rv
+ExecStop=$BIN -f $LAB/p9.lab stop rv
+TimeoutStartSec=120
+TimeoutStopSec=120
+Restart=no
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/p9lab-auth.service
+[Unit]
+Description=p9lab auth (container 10.99.0.1)
+Requires=p9lab-network.service docker.service
+After=p9lab-network.service docker.service
+
+[Service]
+Type=simple
+User=$USER
+Group=$GROUP
+SupplementaryGroups=docker
+WorkingDirectory=$LAB
+ExecStart=$BIN -f $LAB/p9.lab start auth
+ExecStartPost=$BIN -f $LAB/p9.lab wait auth
+ExecStop=$BIN -f $LAB/p9.lab stop auth
+TimeoutStartSec=120
+TimeoutStopSec=120
+Restart=no
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+

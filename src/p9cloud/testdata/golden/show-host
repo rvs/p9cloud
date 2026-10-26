@@ -1,0 +1,22 @@
+sys=host: p9.lab:14
+	sys=host
+	ip=10.99.0.1
+	dom=host.p9lab
+	bridge=p9br
+	state=state
+	http=8082
+	httpdir=guest
+	drawterm=drawterm
+	terminal=terminal
+	user=roman
+	passwords=secrets/passwords.json
+	ipnet=p9lab                       from ipnet=p9lab
+	ipmask=255.255.255.0              from ipnet=p9lab
+	fs=10.99.0.10                     from ipnet=p9lab
+	auth=10.99.0.10                   from ipnet=p9lab
+	ntp=10.99.0.10                    from ipnet=p9lab
+	ini.console=0                     from ipnet=p9lab
+	ini.sysname=$sys                  from ipnet=p9lab
+	ini.auth=$auth                    from ipnet=p9lab
+	ini.fs=$fs                        from ipnet=p9lab
+	ini.service=cpu                   from ipnet=p9lab

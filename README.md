@@ -202,5 +202,8 @@ console=0 sysname=amd auth=10.99.0.10 fs=10.99.0.10 service=cpu nvram=/dev/sdF0/
 
 ## Status
 
-So far only this README. Work proven earlier will be moved in piece by
-piece, cleaned up first.
+- [src/p9cloud](src/p9cloud): the `p9cloud` command, in Go.  It runs a
+  lab of QEMU systems and docker containers on one Linux host, with
+  systemd units for each.
+
+Work proven earlier will be moved in piece by piece, cleaned up first.

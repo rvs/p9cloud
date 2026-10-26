@@ -379,6 +379,42 @@ func TestNeeds(t *testing.T) {
 	}
 }
 
+func TestNvram(t *testing.T) {
+	nvram := func(lab *Lab, name string) string {
+		t.Helper()
+		s, err := lab.System(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := s.Nvram()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	lab := loadLab(t)
+	// fs keeps its nvram in a partition, the container has no disks
+	for name, want := range map[string]string{"fs": "", "amd": "secrets/amd.nvram", "rv": "secrets/rv.nvram", "auth": ""} {
+		if got := nvram(lab, name); got != want {
+			t.Errorf("%s nvram %q, want %q", name, got, want)
+		}
+	}
+	// the disk the device names, inherited from an ipnet
+	lab = loadLab(t, "\tini.nvram=/dev/sdF0/data\n", "",
+		"ini.service=cpu", "ini.service=cpu ini.nvram=/dev/sdF1/data",
+		"disk=secrets/rv.nvram", "disk=images/rv.disk disk=secrets/rv.nvram",
+		"disk=secrets/amd.nvram", "disk=secrets/amd.nvram ini.cfg=/dev/sdF0/data")
+	for name, want := range map[string]string{"fs": "", "amd": "", "rv": "secrets/rv.nvram"} {
+		if got := nvram(lab, name); got != want {
+			t.Errorf("inherited: %s nvram %q, want %q", name, got, want)
+		}
+	}
+	s, _ := loadLab(t, "ini.nvram=/dev/sdF0/data", "ini.nvram=$nosuch").System("rv")
+	if _, err := s.Nvram(); err == nil || !strings.Contains(err.Error(), "$nosuch: no such attribute") {
+		t.Errorf("bad entry: %v", err)
+	}
+}
+
 func TestPort(t *testing.T) {
 	lab := loadLab(t)
 	for s, want := range map[string]int{"rcpu": 17019, "9fs": 564, "564": 564} {

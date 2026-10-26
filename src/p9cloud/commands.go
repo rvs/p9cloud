@@ -530,6 +530,80 @@ func cmdServe(x *ctx) error {
 	return x.e.serve(addr, http.FileServer(http.Dir(dir)))
 }
 
+// authCmd runs the auth container's image on its volumes, with $PASS
+// passed on if pass is set.
+func authCmd(s *System, image string, pass bool, args ...string) []string {
+	argv := []string{"docker", "run", "--rm"}
+	if pass {
+		argv = append(argv, "-e", "PASS")
+	}
+	for _, v := range s.All("volume") {
+		argv = append(argv, "-v", v)
+	}
+	return append(append(argv, image), args...)
+}
+
+// provisionDomain makes the auth container's domain, unless its keys
+// hold it already, and writes the nvram of each VM that keeps it on a
+// disk of its own.
+func (x *ctx) provisionDomain(s *System, image string) error {
+	lab := x.lab
+	dom, err := lab.AuthDom()
+	if err != nil {
+		return err
+	}
+	id := lab.HostID()
+	want := fmt.Sprintf("authdom %s, host owner %s", dom, id)
+	out, err := x.runx(nil, authCmd(s, image, false, "list")...)
+	switch {
+	case err != nil && strings.Contains(err.Error(), ": no domain in "):
+		pw, err := lab.Password(id, true)
+		if err != nil {
+			return err
+		}
+		out, err := x.runx([]string{"PASS=" + pw}, authCmd(s, image, true, "init", id, dom)...)
+		x.printf("%s", out)
+		if err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	default:
+		if got, _, _ := strings.Cut(out, "\n"); got != want {
+			return fmt.Errorf("%s: the keys say %q; the lab wants %s", s.Name, got, want)
+		}
+	}
+	argv := authCmd(s, image, false, "nvram", id)
+	key, err := x.runx(nil, argv...)
+	if err != nil {
+		return err
+	}
+	if len(key) != 512 {
+		return fmt.Errorf("%s: %d bytes, want 512", shjoin(argv), len(key))
+	}
+	for _, v := range lab.Systems {
+		f, err := v.Nvram()
+		if err != nil {
+			return err
+		}
+		if f == "" {
+			continue
+		}
+		p := lab.File(f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, []byte(key), 0o600); err != nil {
+			return err
+		}
+		if err := os.Chmod(p, 0o600); err != nil {
+			return err
+		}
+		x.printf("%s: %s\n", v.Name, f)
+	}
+	return nil
+}
+
 func cmdProvision(x *ctx) error {
 	lab := x.lab
 	what := x.args[0]
@@ -543,17 +617,13 @@ func cmdProvision(x *ctx) error {
 			return err
 		}
 		if what == "nvram" {
-			return fmt.Errorf("%s is a container: guests' nvram files come from docker run --rm -v VOLUME %s nvram %s >FILE", s.Name, image, lab.HostID())
+			return x.provisionDomain(s, image)
 		}
 		pw, err := lab.Password(what, true)
 		if err != nil {
 			return err
 		}
-		argv := []string{"docker", "run", "--rm", "-e", "PASS"}
-		for _, v := range s.All("volume") {
-			argv = append(argv, "-v", v)
-		}
-		out, err := x.runx([]string{"PASS=" + pw}, append(argv, image, "user", what)...)
+		out, err := x.runx([]string{"PASS=" + pw}, authCmd(s, image, true, "user", what)...)
 		x.printf("%s", out)
 		return err
 	}

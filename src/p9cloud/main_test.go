@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -767,9 +768,112 @@ func TestProvisionContainer(t *testing.T) {
 	if st := f.p9cloud("-f", path, "provision", "roman"); st != 1 || f.err.String() != "p9cloud: "+run+": exit status 1\n" {
 		t.Errorf("failing: %d %q", st, f.err.String())
 	}
-	f = newFake(t)
-	if st := f.p9cloud("-f", path, "provision", "nvram"); st != 1 || f.err.String() != "p9cloud: auth is a container: guests' nvram files come from docker run --rm -v VOLUME 9front-auth nvram glenda >FILE\n" {
-		t.Errorf("nvram: %d %q", st, f.err.String())
+}
+
+func TestProvisionContainerNvram(t *testing.T) {
+	const (
+		docker = "docker run --rm -v p9lab-auth:/var/lib/9front-auth 9front-auth "
+		list   = docker + "list"
+		init   = "docker run --rm -e PASS -v p9lab-auth:/var/lib/9front-auth 9front-auth init glenda p9lab"
+		nvram  = docker + "nvram glenda"
+	)
+	noDomain := errors.New("exit status 1: 9front-auth: no domain in /var/lib/9front-auth: run init or import")
+	key := strings.Repeat("k", 512)
+	lab := func(edits ...string) (string, *fake) {
+		path := testLab(t, append([]string{"auth=10.99.0.10 ntp", "auth=10.99.0.1 ntp"}, edits...)...)
+		f := newFake(t)
+		f.reply[nvram] = key
+		return path, f
+	}
+	ran := func(f *fake) string {
+		var s []string
+		for _, r := range f.ran {
+			s = append(s, strings.Join(r, " "))
+		}
+		return strings.Join(s, "\n")
+	}
+	written := func(path string, names ...string) {
+		t.Helper()
+		for _, n := range names {
+			fi, err := os.Stat(filepath.Join(filepath.Dir(path), n))
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _ := os.ReadFile(filepath.Join(filepath.Dir(path), n))
+			if string(b) != key || fi.Mode().Perm() != 0o600 {
+				t.Errorf("%s: %d bytes, mode %v", n, len(b), fi.Mode())
+			}
+		}
+	}
+
+	// a new domain, keyed with the host owner's password
+	path, f := lab()
+	f.fail[list] = noDomain
+	f.reply[init] = "authdom p9lab, host owner glenda\n"
+	if st := f.p9cloud("-f", path, "provision", "nvram"); st != 0 ||
+		f.out.String() != "authdom p9lab, host owner glenda\namd: secrets/amd.nvram\nrv: secrets/rv.nvram\n" {
+		t.Fatalf("status %d: %q %q", st, f.out.String(), f.err.String())
+	}
+	if got, want := ran(f), list+"\n"+init+"\n"+nvram; got != want {
+		t.Errorf("ran\n%s\nwant\n%s", got, want)
+	}
+	if pw := readPasswords(t, path)["host"]; pw == "" || !reflect.DeepEqual(f.ranEnv[1], []string{"PASS=" + pw}) {
+		t.Errorf("init env %q, password %q", f.ranEnv[1], pw)
+	}
+	written(path, "secrets/amd.nvram", "secrets/rv.nvram")
+
+	// the domain is there: only the nvram files are written again
+	path, f = lab("disk=secrets/rv.nvram", "disk=nv/rv.nvram")
+	touch(t, filepath.Dir(path), "secrets/amd.nvram")
+	os.Chmod(filepath.Join(filepath.Dir(path), "secrets/amd.nvram"), 0o644)
+	f.reply[list] = "authdom p9lab, host owner glenda\nglenda                      ok       never    dp9ik\n"
+	if st := f.p9cloud("-f", path, "provision", "nvram"); st != 0 || f.out.String() != "amd: secrets/amd.nvram\nrv: nv/rv.nvram\n" {
+		t.Fatalf("status %d: %q %q", st, f.out.String(), f.err.String())
+	}
+	if got, want := ran(f), list+"\n"+nvram; got != want {
+		t.Errorf("ran\n%s\nwant\n%s", got, want)
+	}
+	written(path, "secrets/amd.nvram", "nv/rv.nvram")
+
+	// another domain
+	for _, out := range []string{"authdom other, host owner glenda\n", "authdom p9lab, host owner bootes\n", "garbage\n"} {
+		path, f = lab()
+		f.reply[list] = out
+		if st := f.p9cloud("-f", path, "provision", "nvram"); st != 1 || f.err.String() !=
+			"p9cloud: auth: the keys say \""+strings.TrimSpace(out)+"\"; the lab wants authdom p9lab, host owner glenda\n" {
+			t.Errorf("%q: %d %q", out, st, f.err.String())
+		}
+		if len(f.ran) != 1 {
+			t.Errorf("ran %q", f.ran)
+		}
+	}
+
+	// failures
+	for _, c := range []struct {
+		fail, reply map[string]string
+		err         string
+	}{
+		{map[string]string{list: "exit status 125"}, nil, "p9cloud: " + list + ": exit status 125\n"},
+		{map[string]string{list: noDomain.Error(), init: "exit status 1"}, nil, "p9cloud: " + init + ": exit status 1\n"},
+		{map[string]string{nvram: "exit status 1"}, map[string]string{list: "authdom p9lab, host owner glenda\n"}, "p9cloud: " + nvram + ": exit status 1\n"},
+		{nil, map[string]string{list: "authdom p9lab, host owner glenda\n", nvram: "short"}, "p9cloud: " + nvram + ": 5 bytes, want 512\n"},
+	} {
+		path, f = lab()
+		for k, v := range c.fail {
+			f.fail[k] = errors.New(v)
+		}
+		for k, v := range c.reply {
+			f.reply[k] = v
+		}
+		if st := f.p9cloud("-f", path, "provision", "nvram"); st != 1 || f.err.String() != c.err {
+			t.Errorf("%v: %d %q, want %q", c.fail, st, f.err.String(), c.err)
+		}
+	}
+	path, f = lab()
+	f.reply[list] = "authdom p9lab, host owner glenda\n"
+	os.WriteFile(filepath.Join(filepath.Dir(path), "secrets"), nil, 0o644)
+	if st := f.p9cloud("-f", path, "provision", "nvram"); st != 1 || !strings.Contains(f.err.String(), "secrets: not a directory") {
+		t.Errorf("unwritable: %d %q", st, f.err.String())
 	}
 }
 

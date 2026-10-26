@@ -29,7 +29,7 @@ each command's.
 | `console sys` | the serial console (Ctrl-] detaches); a container's log |
 | `net [-n]` | creates the host's bridge and the tap devices (root) |
 | `serve` | serves the host's `httpdir=` over http |
-| `provision [-t timeout] nvram\|user` | on the auth server: `auth/wrkey`, or adds or rekeys a user |
+| `provision [-t timeout] nvram\|user` | on the auth server: `auth/wrkey`, or adds or rekeys a user; for an auth container, `nvram` makes its domain, unless its keys hold it, and writes the VMs' nvram disks |
 | `units [-install]` | the systemd units for the systems; `-install` writes them (root) |
 
 `-setup` boots with `setup.NAME` in place of `ini.NAME`: a maintenance
@@ -63,7 +63,9 @@ Besides those in ../../README.md:
 Relative file names are relative to the lab file's directory.  The
 auth server is the system at the host's `auth=`; its host owner is
 `hostid=` in the file `auth` next to the lab file (`/lib/ndb/auth`),
-else glenda, whose password is `host` in the passwords file.
+else glenda, whose password is `host` in the passwords file.  A VM's
+nvram disk is the `disk=` that its `ini.nvram=/dev/sdFn/data` names:
+the nth.
 
 ## Layout
 

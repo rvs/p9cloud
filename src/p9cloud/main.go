@@ -72,7 +72,8 @@ var commands = []*command{
 		help: "serve the host's httpdir= over http, on its ip and http= port"},
 	{name: "provision", usage: "provision [-t timeout] nvram|user", run: cmdProvision,
 		flags: "t", min: 1, max: 1, timeout: 40,
-		help: "auth server: write its nvram, or add or rekey a user, with passwords from passwords="},
+		help: "auth server: write its nvram, or add or rekey a user, with passwords from passwords=;\n" +
+			"an auth container: make its domain, then write the nvram disks of the VMs"},
 	{name: "units", usage: "units [-install]", run: cmdUnits, flags: "install",
 		help: "print the systemd units for the systems; -install writes them (root)"},
 	{name: "help", usage: "help [command]", max: 1,

@@ -572,6 +572,29 @@ func (s *System) Files() ([]string, error) {
 	return fs, nil
 }
 
+var nvramDisk = regexp.MustCompile(`^/dev/sdF([0-9]+)/data$`)
+
+// Nvram is the disk= file a VM keeps its nvram in, when it takes a
+// whole disk: ini.nvram=/dev/sdFn/data names the system's nth disk.
+func (s *System) Nvram() (string, error) {
+	ks, err := s.Kargs(false, nil)
+	if err != nil {
+		return "", err
+	}
+	disks := s.All("disk")
+	for _, k := range ks {
+		if k.Name != "nvram" {
+			continue
+		}
+		if m := nvramDisk.FindStringSubmatch(k.Val); m != nil {
+			if n, _ := strconv.Atoi(m[1]); n < len(disks) {
+				return disks[n], nil
+			}
+		}
+	}
+	return "", nil
+}
+
 // Needs returns the systems a QEMU system boots from: its fs= and auth=.
 func (s *System) Needs() ([]*System, error) {
 	if s.Kind != "qemu" {

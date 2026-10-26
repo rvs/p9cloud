@@ -1,0 +1,7 @@
+*
+!Makefile
+!lib
+!src
+!tests
+**/*.o
+tests/speaksfor

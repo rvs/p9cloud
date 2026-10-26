@@ -205,5 +205,8 @@ console=0 sysname=amd auth=10.99.0.10 fs=10.99.0.10 service=cpu nvram=/dev/sdF0/
 - [src/p9cloud](src/p9cloud): the `p9cloud` command, in Go.  It runs a
   lab of QEMU systems and docker containers on one Linux host, with
   systemd units for each.
+- [src/docker/auth](src/docker/auth): `9front-auth`, the auth server of
+  a 9front domain: one static binary in a docker image, run as a lab's
+  `container=` system.
 
 Work proven earlier will be moved in piece by piece, cleaned up first.

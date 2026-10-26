@@ -1,5 +1,5 @@
 # A lab like the first one that ran: a file and auth server, two cpu
-# servers, an auth container, on the Linux host's bridge.
+# servers, an auth container, on the lab's docker network.
 
 database=
 	file=/net/ndb
@@ -19,14 +19,14 @@ sys=host ip=10.99.0.1 dom=host.p9lab
 sys=fs ip=10.99.0.10 ether=525400990010 dom=fs.p9lab
 	qemu=qemu-system-x86_64 accel=kvm cpumodel=host mem=1536 smp=2
 	bootf=images/9pc64 disk=images/fs-os.qcow2 disk=images/shared.qcow2
-	virtio=transitional tap=p9fs
+	virtio=transitional
 	ini.nobootprompt=local!/dev/sdF0/fs ini.nvram=/dev/sdF0/nvram
 	setup.service=terminal setup.user=glenda
 	ready=9fs ready=ticket
 
 sys=amd ip=10.99.0.11 ether=525400990011 dom=amd.p9lab
 	qemu=qemu-system-x86_64 accel=kvm cpumodel=host mem=2G smp=2
-	bootf=images/9pc64 disk=secrets/amd.nvram virtio=modern tap=p9amd
+	bootf=images/9pc64 disk=secrets/amd.nvram virtio=modern
 	ini.nvram=/dev/sdF0/data
 	ini.nobootprompt="tcp ether /net/ether0 $ip $ipmask"
 	ready=rcpu
@@ -35,14 +35,14 @@ sys=rv ip=10.99.0.12 ether=525400990012 dom=rv.p9lab
 	qemu=qemu-system-riscv64 accel=tcg machine=virt mem=2G smp=2
 	cpumodel=rv64,svpbmt=true,zicbom=true
 	bios=images/opensbi.bin bootf=images/9rv64 disk=secrets/rv.nvram
-	virtio=modern tap=p9rv
+	virtio=modern
 	ini.nvram=/dev/sdF0/data
 	ini.nobootprompt="tcp ether /net/ether0 $ip $ipmask"
 	ready=rcpu
 
-sys=auth ip=10.99.0.1 dom=auth.p9lab
+sys=auth ip=10.99.0.2 dom=auth.p9lab
 	container=p9lab-auth image=9front-auth
-	volume=p9lab-auth:/var/lib/9front-auth publish=ticket
+	volume=p9lab-auth:/var/lib/9front-auth
 	ready=ticket
 
 tcp=9fs port=564

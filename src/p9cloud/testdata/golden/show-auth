@@ -1,11 +1,10 @@
 sys=auth: p9.lab:43, container
 	sys=auth
-	ip=10.99.0.1
+	ip=10.99.0.2
 	dom=auth.p9lab
 	container=p9lab-auth
 	image=9front-auth
 	volume=p9lab-auth:/var/lib/9front-auth
-	publish=ticket
 	ready=ticket
 	ipnet=p9lab                             from ipnet=p9lab
 	ipmask=255.255.255.0                    from ipnet=p9lab
@@ -18,5 +17,4 @@ sys=auth: p9.lab:43, container
 	ini.fs=$fs                              from ipnet=p9lab
 	ini.service=cpu                         from ipnet=p9lab
 command:
-	docker run --rm --name p9lab-auth -p 10.99.0.1:567:567 -v p9lab-auth:/var/lib/9front-auth 9front-auth
-unit: p9lab-auth.service
+	docker run --rm --name p9lab-auth --network p9br --ip 10.99.0.2 -v p9lab-auth:/var/lib/9front-auth 9front-auth

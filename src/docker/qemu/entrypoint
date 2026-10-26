@@ -1,0 +1,28 @@
+#!/bin/sh
+# Run QEMU as QEMU_USER (uid:gid), with /dev/kvm's group when present.
+# eth0's address belongs to the guest; bridge eth0 and tap0 only inside
+# this container. Needs NET_ADMIN and /dev/net/tun.
+set -eu
+case ${QEMU_USER:-} in
+*[!0-9:]*|:*|*:|*:*:*)
+	echo '9front-qemu: QEMU_USER must be numeric uid:gid' >&2; exit 1 ;;
+*:*)	;;
+*)	echo '9front-qemu: QEMU_USER must be numeric uid:gid' >&2; exit 1 ;;
+esac
+if [ "$#" -eq 0 ]; then
+	echo 'usage: 9front-qemu command [arg...]' >&2
+	exit 1
+fi
+uid=${QEMU_USER%%:*} gid=${QEMU_USER#*:}
+ip tuntap add dev tap0 mode tap user "$uid"
+ip link add br0 type bridge
+ip link set tap0 master br0
+if ip link show eth0 >/dev/null 2>&1; then
+	ip addr flush dev eth0
+	ip link set eth0 master br0
+fi
+ip link set tap0 up
+ip link set br0 up
+groups=$gid
+if [ -c /dev/kvm ]; then groups=$gid,$(stat -c %g /dev/kvm); fi
+exec setpriv --reuid "$uid" --regid "$gid" --groups "$groups" -- "$@"

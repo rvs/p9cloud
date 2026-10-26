@@ -104,7 +104,7 @@ func TestRawtty(t *testing.T) {
 func TestRealEnv(t *testing.T) {
 	e := realEnv()
 	if e.run == nil || e.exec == nil || e.rawtty == nil || e.serve == nil || e.sleep == nil || e.now == nil ||
-		e.self == "" || e.sysnet != "/sys/class/net" || e.systemd != "/etc/systemd/system" || e.typing == 0 {
+		e.self == "" || e.sysnet != "/sys/class/net" || e.typing == 0 {
 		t.Errorf("realEnv %+v", e)
 	}
 }
@@ -124,13 +124,7 @@ func TestBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden(t, "show-amd", string(out), filepath.Dir(path))
-	cmd := exec.Command(bin, "-f", path, "units")
-	out, err = cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	golden(t, "units", strings.ReplaceAll(string(out), bin, "/usr/local/bin/p9cloud"), filepath.Dir(path))
-	cmd = exec.Command(bin, "-f", path, "nope")
+	cmd := exec.Command(bin, "-f", path, "nope")
 	out, err = cmd.CombinedOutput()
 	if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 2 || !strings.HasPrefix(string(out), "p9cloud: nope: no such command\nusage:") {
 		t.Errorf("nope: %v %q", err, out)

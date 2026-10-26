@@ -59,7 +59,7 @@ func TestDefaultLab(t *testing.T) {
 
 func TestShowElsewhere(t *testing.T) {
 	other := filepath.Join(t.TempDir(), "more")
-	os.WriteFile(other, []byte("sys=extra ip=10.99.0.20\n\tqemu=q bootf=k\n"), 0o644)
+	os.WriteFile(other, []byte("sys=extra ip=10.99.0.20\n\tqemu=q bootf=k ether=525400990020\n"), 0o644)
 	path := testLab(t, "\tfile=/lib/ndb/common\n", "\tfile=/lib/ndb/common\n\tfile="+other+"\n")
 	f := newFake(t)
 	if st := f.p9cloud("-f", path, "show", "extra"); st != 0 || !strings.HasPrefix(f.out.String(), "sys=extra: "+other+":1, qemu\n") {
@@ -102,7 +102,8 @@ func TestUsage(t *testing.T) {
 		{[]string{"query", "sys"}, "usage: p9cloud [-f lab] query attr value [rattr...]"},
 		{[]string{"wait", "-t", "x", "amd"}, "invalid value"},
 		{[]string{"cmd", "fs"}, "usage: p9cloud [-f lab] cmd [-t timeout] sys command..."},
-		{[]string{"cpu"}, "usage: p9cloud [-f lab] cpu [-u user] sys [command...]"},
+		{[]string{"cpu"}, "usage: p9cloud [-f lab] cpu [-u user] [-r dir] sys [command...]"},
+		{[]string{"cpu", "-r"}, "flag needs an argument: -r"},
 		{[]string{"provision"}, "usage: p9cloud [-f lab] provision [-t timeout] nvram|user"},
 		{[]string{"help", "nope"}, "p9cloud: nope: no such command"},
 	} {
@@ -118,7 +119,7 @@ func TestUsage(t *testing.T) {
 	if st := f.p9cloud("help"); st != 0 || f.err.String() != "" {
 		t.Errorf("help: status %d, %q", st, f.err.String())
 	}
-	for _, c := range []string{"list", "show", "query", "start", "wait", "stop", "cpu", "cmd", "console", "net", "serve", "provision", "units", "help"} {
+	for _, c := range []string{"list", "show", "query", "start", "wait", "stop", "cpu", "cmd", "console", "net", "serve", "provision", "help"} {
 		if !regexp.MustCompile(`(?m)^  ` + c + ` `).MatchString(f.out.String()) {
 			t.Errorf("help does not list %s:\n%s", c, f.out.String())
 		}
@@ -157,16 +158,22 @@ func TestQuery(t *testing.T) {
 		{[]string{"sys", "nope", "ip"}, "\n"},
 		{[]string{"tcp", "rcpu"}, "\n"}, // no ip=
 		// as ndbipinfo: each entry with its networks', concatenated, then deduplicated
-		{[]string{"ip", "10.99.0.1"}, "ip=10.99.0.1 dom=host.p9lab sys=host bridge=p9br state=state http=8082 httpdir=guest drawterm=drawterm terminal=terminal user=roman passwords=secrets/passwords.json ipnet=p9lab ipmask=255.255.255.0 fs=10.99.0.10 auth=10.99.0.10 ntp=10.99.0.10 ini.console=0 ini.sysname=$sys ini.auth=$auth ini.fs=$fs ini.service=cpu dom=auth.p9lab sys=auth container=p9lab-auth image=9front-auth volume=p9lab-auth:/var/lib/9front-auth publish=ticket ready=ticket \n"},
+		{[]string{"ip", "10.99.0.2", "sys", "image"}, "sys=auth image=9front-auth \n"},
 	} {
 		f := newFake(t)
 		if st := f.p9cloud(append([]string{"-f", path, "query"}, c.args...)...); st != 0 || f.out.String() != c.out {
 			t.Errorf("query %v: status %d, %q; want %q", c.args, st, f.out.String(), c.out)
 		}
 	}
+	// as ndbipinfo: each entry with its networks', concatenated, then deduplicated
+	f := newFake(t)
+	path2 := testLab(t, "sys=auth ip=10.99.0.2", "sys=auth ip=10.99.0.1")
+	if st := f.p9cloud("-f", path2, "query", "ip", "10.99.0.1"); st != 0 || f.out.String() != "ip=10.99.0.1 dom=host.p9lab sys=host bridge=p9br state=state http=8082 httpdir=guest drawterm=drawterm terminal=terminal user=roman passwords=secrets/passwords.json ipnet=p9lab ipmask=255.255.255.0 fs=10.99.0.10 auth=10.99.0.10 ntp=10.99.0.10 ini.console=0 ini.sysname=$sys ini.auth=$auth ini.fs=$fs ini.service=cpu dom=auth.p9lab sys=auth container=p9lab-auth image=9front-auth volume=p9lab-auth:/var/lib/9front-auth ready=ticket \n" {
+		t.Errorf("query ip 10.99.0.1: status %d, %q", st, f.out.String())
+	}
 	// a database without a host
 	path = testLab(t, "bridge=p9br ", "")
-	f := newFake(t)
+	f = newFake(t)
 	if st := f.p9cloud("-f", path, "query", "sys", "rv", "ini.nvram"); st != 0 || f.out.String() != "ini.nvram=/dev/sdF0/data \n" {
 		t.Errorf("query without a host: %d %q %q", st, f.out.String(), f.err.String())
 	}
@@ -174,22 +181,20 @@ func TestQuery(t *testing.T) {
 
 func TestList(t *testing.T) {
 	path := testLab(t)
-	dir := filepath.Dir(path)
 	f := newFake(t)
 	f.netdev(t, "p9br")
-	f.reply["systemctl is-active p9lab-network.service p9lab-fs.service p9lab-amd.service p9lab-rv.service p9lab-auth.service"] = "active\nactive\ninactive\nfailed\nactive\n"
-	f.fail["systemctl is-active p9lab-network.service p9lab-fs.service p9lab-amd.service p9lab-rv.service p9lab-auth.service"] = errFake
+	f.reply["docker inspect -f {{.State.Running}} p9lab-fs"] = "true\n"
+	f.reply["docker inspect -f {{.State.Running}} p9lab-amd"] = "false\n"
 	f.reply["docker inspect -f {{.State.Running}} p9lab-auth"] = "true\n"
-	fakeMonitor(t, filepath.Join(dir, "state/fs/monitor.sock"))
 	if st := f.p9cloud("-f", path, "list"); st != 0 {
 		t.Fatalf("status %d: %s", st, f.err.String())
 	}
-	want := `SYS   KIND       IP          RUNNING         UNIT
-host  host       10.99.0.1   bridge p9br up  p9lab-network.service active
-fs    qemu       10.99.0.10  yes             p9lab-fs.service active
-amd   qemu       10.99.0.11  no              p9lab-amd.service inactive
-rv    qemu       10.99.0.12  no              p9lab-rv.service failed
-auth  container  10.99.0.1   yes             p9lab-auth.service active
+	want := `SYS   KIND       IP          RUNNING          CONTAINER
+host  host       10.99.0.1   network p9br up
+fs    qemu       10.99.0.10  yes              p9lab-fs
+amd   qemu       10.99.0.11  no               p9lab-amd
+rv    qemu       10.99.0.12  no               p9lab-rv
+auth  container  10.99.0.2   yes              p9lab-auth
 
 authdom p9lab, auth server 10.99.0.10 (fs)
 `
@@ -197,16 +202,16 @@ authdom p9lab, auth server 10.99.0.10 (fs)
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
 
-	// without systemd, bridge or docker
+	// without the network or docker
 	f = newFake(t)
-	path = testLab(t, "auth=10.99.0.10 ntp", "auth=10.99.0.1 ntp")
+	path = testLab(t, "auth=10.99.0.10 ntp", "auth=10.99.0.2 ntp")
 	if st := f.p9cloud("-f", path, "list"); st != 0 {
 		t.Fatalf("status %d: %s", st, f.err.String())
 	}
 	for _, w := range []string{
-		"host  host       10.99.0.1   bridge p9br missing  p9lab-network.service ?\n",
-		"auth  container  10.99.0.1   no                   p9lab-auth.service ?\n",
-		"\nauthdom p9lab, auth server 10.99.0.1 (auth)\n",
+		"host  host       10.99.0.1   network p9br missing\n",
+		"auth  container  10.99.0.2   no                    p9lab-auth\n",
+		"\nauthdom p9lab, auth server 10.99.0.2 (auth)\n",
 	} {
 		if !strings.Contains(f.out.String(), w) {
 			t.Errorf("got\n%s\nwithout\n%s", f.out.String(), w)
@@ -214,14 +219,14 @@ authdom p9lab, auth server 10.99.0.10 (fs)
 	}
 }
 
-// startable makes a lab whose qemu systems can start: their files and
-// tap devices exist.
+// startable makes a lab whose systems can start: the qemu systems'
+// files and the lab's network exist.
 func startable(t *testing.T, edits ...string) (*fake, string) {
 	path := testLab(t, edits...)
 	touch(t, filepath.Dir(path), "images/9pc64", "images/9rv64", "images/opensbi.bin",
 		"images/fs-os.qcow2", "images/shared.qcow2", "secrets/amd.nvram", "secrets/rv.nvram")
 	f := newFake(t)
-	f.netdev(t, "p9br", "p9fs", "p9amd", "p9rv")
+	f.netdev(t, "p9br")
 	return f, path
 }
 
@@ -243,6 +248,12 @@ func TestStart(t *testing.T) {
 	}
 	if f.err.String() != shjoin(want)+"\n" {
 		t.Errorf("stderr %q", f.err.String())
+	}
+	if !reflect.DeepEqual(f.ran, [][]string{
+		{"docker", "inspect", "-f", "{{.State.Running}}", "p9lab-amd"},
+		{"docker", "rm", "-f", "p9lab-amd"},
+	}) {
+		t.Errorf("ran %q", f.ran)
 	}
 	if mask != 0o077 {
 		t.Errorf("umask %o", mask)
@@ -275,15 +286,32 @@ func TestStart(t *testing.T) {
 	}) {
 		t.Errorf("ran %q", f.ran)
 	}
-	if want := "docker run --rm --name p9lab-auth -p 10.99.0.1:567:567 -v p9lab-auth:/var/lib/9front-auth -e X=1 9front-auth"; strings.Join(f.execed, " ") != want {
+	if want := "docker run --rm --name p9lab-auth --network p9br --ip 10.99.0.2 -v p9lab-auth:/var/lib/9front-auth -e X=1 9front-auth"; strings.Join(f.execed, " ") != want {
 		t.Errorf("exec %q", f.execed)
+	}
+}
+
+func TestStartDetached(t *testing.T) {
+	for _, name := range []string{"amd", "auth"} {
+		t.Run(name, func(t *testing.T) {
+			f, path := startable(t)
+			if st := f.p9cloud("-f", path, "start", "-d", name); st != 0 {
+				t.Fatalf("status %d: %s", st, f.err.String())
+			}
+			lab, _ := Load(path)
+			s, _ := lab.System(name)
+			command, _ := s.Command(false, nil, nil)
+			want := append([]string{"docker", "run", "--detach"}, command[2:]...)
+			if !reflect.DeepEqual(f.execed, want) {
+				t.Errorf("exec %q\nwant %q", f.execed, want)
+			}
+		})
 	}
 }
 
 func TestStartErrors(t *testing.T) {
 	f, path := startable(t)
-	dir := filepath.Dir(path)
-	fakeMonitor(t, filepath.Join(dir, "state/amd/monitor.sock"))
+	f.reply["docker inspect -f {{.State.Running}} p9lab-amd"] = "true\n"
 	if st := f.p9cloud("-f", path, "start", "amd"); st != 1 || f.err.String() != "p9cloud: amd is already running\n" {
 		t.Errorf("running: %d %q", st, f.err.String())
 	}
@@ -297,10 +325,12 @@ func TestStartErrors(t *testing.T) {
 	if st := f.p9cloud("-f", path, "start", "rv"); st != 1 || f.err.String() != "p9cloud: rv: "+filepath.Dir(path)+"/images/opensbi.bin: no such file\n" {
 		t.Errorf("no file: %d %q", st, f.err.String())
 	}
-	f, path = startable(t)
-	os.Remove(filepath.Join(f.sysnet, "p9rv"))
-	if st := f.p9cloud("-f", path, "start", "rv"); st != 1 || f.err.String() != "p9cloud: rv: no tap p9rv: sudo /usr/local/bin/p9cloud -f "+path+" net\n" {
-		t.Errorf("no tap: %d %q", st, f.err.String())
+	for _, sys := range []string{"rv", "auth"} {
+		f, path = startable(t)
+		os.Remove(filepath.Join(f.sysnet, "p9br"))
+		if st := f.p9cloud("-f", path, "start", sys); st != 1 || f.err.String() != "p9cloud: "+sys+": no network p9br: /usr/local/bin/p9cloud -f "+path+" net\n" {
+			t.Errorf("no network: %d %q", st, f.err.String())
+		}
 	}
 	f, path = startable(t)
 	if st := f.p9cloud("-f", path, "start", "host"); st != 1 || f.err.String() != "p9cloud: host: not one of: fs amd rv auth\n" {
@@ -362,11 +392,12 @@ func TestStop(t *testing.T) {
 	}
 
 	f = newFake(t)
-	f.reply["docker inspect -f {{.State.Running}} p9lab-auth"] = "true\n"
+	stopStates(f, authStopStatus, "running\n", "exited\n")
 	if st := f.p9cloud("-f", path, "stop", "auth"); st != 0 {
 		t.Errorf("container: %d %q", st, f.err.String())
 	}
-	if got := f.ran[len(f.ran)-1]; strings.Join(got, " ") != "docker stop p9lab-auth" {
+	if len(f.ran) != 3 || strings.Join(f.ran[1], " ") != "docker stop p9lab-auth" ||
+		strings.Join(f.ran[2], " ") != authStopStatus {
 		t.Errorf("ran %q", f.ran)
 	}
 
@@ -378,8 +409,12 @@ func TestStop(t *testing.T) {
 		return ""
 	})
 	f = newFake(t)
+	stopStates(f, amdStopStatus, "running\n", "running\n", "running\n", "")
 	if st := f.p9cloud("-f", path, "stop", "amd"); st != 0 {
 		t.Fatalf("status %d: %s", st, f.err.String())
+	}
+	if len(f.ran) != 4 || strings.Join(f.ran[len(f.ran)-1], " ") != amdStopStatus {
+		t.Errorf("ran %q", f.ran)
 	}
 	if con.String() != "fshalt\n" {
 		t.Errorf("console got %q", con.String())
@@ -388,8 +423,8 @@ func TestStop(t *testing.T) {
 	if !strings.Contains(f.out.String(), "done halting") {
 		t.Errorf("stdout %q", f.out.String())
 	}
-	if f.slept.Seconds() < 2 {
-		t.Errorf("slept %v", f.slept)
+	if f.slept != 2500*time.Millisecond {
+		t.Errorf("slept %v, want 2.5s", f.slept)
 	}
 }
 
@@ -398,6 +433,7 @@ func TestStopUnclean(t *testing.T) {
 	dir := filepath.Dir(path)
 	mon := fakeMonitor(t, filepath.Join(dir, "state/amd/monitor.sock"))
 	f := newFake(t)
+	f.reply[amdStopStatus] = "running\n"
 	if st := f.p9cloud("-f", path, "stop", "amd"); st != 1 || !strings.HasPrefix(f.err.String(), "p9cloud: amd: serial console: ") ||
 		!strings.HasSuffix(f.err.String(), "; is it running?\n") {
 		t.Errorf("no console: %d %q", st, f.err.String())
@@ -405,11 +441,12 @@ func TestStopUnclean(t *testing.T) {
 	// done, but not done halting at the start of a line
 	fakeConsole(t, filepath.Join(dir, "state/amd/serial.sock"), func(string) string { return "done flushing; not done halting\r\n" })
 	f = newFake(t)
+	f.reply[amdStopStatus] = "running\n"
 	if st := f.p9cloud("-f", path, "stop", "-t", "0.2", "amd"); st != 1 || f.err.String() != "p9cloud: amd did not confirm a clean halt; NOT killing QEMU. Detach other console clients, check the guest.\n" {
 		t.Errorf("unclean: %d %q", st, f.err.String())
 	}
-	if strings.Contains(mon.String(), "quit") {
-		t.Error("quit QEMU without a clean halt")
+	if strings.Contains(mon.String(), "quit") || len(f.ran) != 1 {
+		t.Errorf("quit QEMU without a clean halt: ran %q", f.ran)
 	}
 }
 
@@ -458,6 +495,72 @@ func TestCpu(t *testing.T) {
 	f = newFake(t)
 	if st := f.p9cloud("-f", path, "cpu", "auth"); st != 1 || f.err.String() != "p9cloud: auth: not one of: fs amd rv\n" {
 		t.Errorf("container: %d %q", st, f.err.String())
+	}
+}
+
+func TestCpuRoot(t *testing.T) {
+	for _, kind := range []string{"default", "empty", "relative", "absolute", "dot"} {
+		t.Run(kind, func(t *testing.T) {
+			path := testLab(t, "terminal=terminal", "terminal=bootstrap-root")
+			dir := filepath.Dir(path)
+			writePasswords(t, path, map[string]string{"host": "hpw"})
+			// Relative roots belong to the lab, not the invocation's directory.
+			t.Chdir(t.TempDir())
+			args := []string{"-f", path, "cpu", "-u", "glenda"}
+			root, wantRoot := "", filepath.Join(dir, "bootstrap-root")
+			switch kind {
+			case "relative":
+				root, wantRoot = "check inputs", filepath.Join(dir, "check inputs")
+			case "absolute":
+				root = filepath.Join(t.TempDir(), "checks")
+				wantRoot = root
+			case "dot":
+				root, wantRoot = ".", dir
+			}
+			if kind != "default" {
+				args = append(args, "-r", root)
+			}
+			args = append(args, "amd", "/mnt/term/check", "kernel hash")
+			f := newFake(t)
+			if st := f.p9cloud(args...); st != 0 {
+				t.Fatalf("status %d: %s", st, f.err.String())
+			}
+			want := []string{"drawterm", "-G", "-h", "tcp!10.99.0.11!17019",
+				"-a", "tcp!10.99.0.10!567", "-u", "glenda", "-r", wantRoot,
+				"-c", "/mnt/term/check kernel hash"}
+			if !reflect.DeepEqual(f.execed, want) || !reflect.DeepEqual(f.execEnv, []string{"PASS=hpw"}) {
+				t.Errorf("exec %q %q, want %q", f.execed, f.execEnv, want)
+			}
+			if st, err := os.Stat(wantRoot); err != nil || !st.IsDir() {
+				t.Errorf("export root not created: %v", err)
+			}
+			if root != "" {
+				if _, err := os.Stat(filepath.Join(dir, "bootstrap-root")); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("override created default export root: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestCpuRootError(t *testing.T) {
+	path := testLab(t)
+	writePasswords(t, path, map[string]string{"roman": "rpw"})
+	touch(t, filepath.Dir(path), "not-a-directory")
+	f := newFake(t)
+	if st := f.p9cloud("-f", path, "cpu", "-r", "not-a-directory", "amd"); st != 1 ||
+		!strings.Contains(f.err.String(), "not-a-directory") || f.execed != nil {
+		t.Fatalf("status %d, exec %q: %q", st, f.execed, f.err.String())
+	}
+}
+
+func TestCpuRootHelp(t *testing.T) {
+	f := newFake(t)
+	if st := f.p9cloud("help", "cpu"); st != 0 ||
+		!strings.Contains(f.out.String(), "cpu [-u user] [-r dir] sys [command...]") ||
+		!strings.Contains(f.out.String(), "-r dir") ||
+		!strings.Contains(f.out.String(), "relative to the lab file") {
+		t.Fatalf("status %d: %q %q", st, f.out.String(), f.err.String())
 	}
 }
 
@@ -580,62 +683,70 @@ func TestConsole(t *testing.T) {
 
 func TestNet(t *testing.T) {
 	path := testLab(t)
-	lab, _ := Load(path)
-	owner, _, _ := lab.Owner()
-	addr := "ip -o -4 addr show dev p9br"
-	all := "ip link add p9br type bridge\n" +
-		"ip addr add 10.99.0.1/24 dev p9br\n" +
-		"ip link set p9br up\n" +
-		"ip tuntap add dev p9fs mode tap user " + owner + "\n" +
-		"ip link set p9fs master p9br\nip link set p9fs up\n" +
-		"ip tuntap add dev p9amd mode tap user " + owner + "\n" +
-		"ip link set p9amd master p9br\nip link set p9amd up\n" +
-		"ip tuntap add dev p9rv mode tap user " + owner + "\n" +
-		"ip link set p9rv master p9br\nip link set p9rv up\n"
+	inspect := "docker network inspect -f {{range .IPAM.Config}}{{.Subnet}} {{.Gateway}}{{end}} p9br"
+	create := "docker network create --internal --subnet 10.99.0.0/24 --gateway 10.99.0.1 -o com.docker.network.bridge.name=p9br p9br"
 	f := newFake(t)
-	f.fail[addr] = errFake
-	if st := f.p9cloud("-f", path, "net", "-n"); st != 0 || f.out.String() != all {
-		t.Errorf("net -n: %d\n%s%s", st, f.out.String(), f.err.String())
-	}
-	if len(f.ran) != 1 {
-		t.Errorf("net -n ran %q", f.ran)
+	f.fail[inspect] = errFake
+	if st := f.p9cloud("-f", path, "net", "-n"); st != 0 || f.out.String() != create+"\n" || len(f.ran) != 1 {
+		t.Errorf("net -n: %d %q %q, ran %q", st, f.out.String(), f.err.String(), f.ran)
 	}
 	f = newFake(t)
-	f.netdev(t, "p9br", "p9fs", "p9amd", "p9rv")
-	f.reply[addr] = "5: p9br    inet 10.99.0.1/24 brd 10.99.0.255 scope global p9br\\       valid_lft forever preferred_lft forever\n"
-	set := "ip link set p9br up\n" +
-		"ip link set p9fs master p9br\nip link set p9fs up\n" +
-		"ip link set p9amd master p9br\nip link set p9amd up\n" +
-		"ip link set p9rv master p9br\nip link set p9rv up\n"
-	if st := f.p9cloud("-f", path, "net", "-n"); st != 0 || f.out.String() != set {
-		t.Errorf("net -n, all there: %d\n%s%s", st, f.out.String(), f.err.String())
+	f.fail[inspect] = errFake
+	f.reply[create] = "8770c26b3612\n"
+	if st := f.p9cloud("-f", path, "net"); st != 0 || f.out.String() != create+"\n" ||
+		len(f.ran) != 2 || strings.Join(f.ran[1], " ") != create {
+		t.Errorf("net: %d %q %q, ran %q", st, f.out.String(), f.err.String(), f.ran)
 	}
 	f = newFake(t)
-	f.fail[addr] = errFake
-	if st := f.p9cloud("-f", path, "net"); st != 1 || f.err.String() != "p9cloud: net needs root: sudo /usr/local/bin/p9cloud -f "+path+" net\n" {
-		t.Errorf("not root: %d %q", st, f.err.String())
-	}
-	f = newFake(t)
-	f.euid = 0
-	f.fail[addr] = errFake
-	if st := f.p9cloud("-f", path, "net"); st != 0 || f.out.String() != all {
-		t.Errorf("net: %d\n%s%s", st, f.out.String(), f.err.String())
-	}
-	var ran []string
-	for _, c := range f.ran[1:] {
-		ran = append(ran, strings.Join(c, " ")+"\n")
-	}
-	if strings.Join(ran, "") != all {
-		t.Errorf("ran %q", ran)
-	}
-	f = newFake(t)
-	f.euid = 0
-	f.fail["ip link set p9br up"] = errFake
-	if st := f.p9cloud("-f", path, "net"); st != 1 || f.err.String() != "p9cloud: ip link set p9br up: exit status 1\n" {
+	f.fail[inspect] = errFake
+	f.fail[create] = errFake
+	if st := f.p9cloud("-f", path, "net"); st != 1 || f.err.String() != "p9cloud: "+create+": exit status 1\n" {
 		t.Errorf("failing: %d %q", st, f.err.String())
 	}
-	if len(f.ran) != 4 {
-		t.Errorf("went on after a failure: %q", f.ran)
+
+	// there already
+	f = newFake(t)
+	f.reply[inspect] = "10.99.0.0/24 10.99.0.1\n"
+	if st := f.p9cloud("-f", path, "net"); st != 0 || f.out.String() != "" || len(f.ran) != 1 {
+		t.Errorf("there: %d %q %q, ran %q", st, f.out.String(), f.err.String(), f.ran)
+	}
+	f = newFake(t)
+	f.reply[inspect] = "10.99.0.0/16 10.99.0.254\n"
+	if st := f.p9cloud("-f", path, "net"); st != 1 || f.err.String() != "p9cloud: docker network p9br: 10.99.0.0/16 10.99.0.254; the lab wants 10.99.0.0/24 10.99.0.1\n" {
+		t.Errorf("another: %d %q", st, f.err.String())
+	}
+	// a device of the name that docker does not know: the host's own
+	f = newFake(t)
+	f.netdev(t, "p9br")
+	f.fail[inspect] = errFake
+	if st := f.p9cloud("-f", path, "net", "-n"); st != 1 || f.err.String() != "p9cloud: p9br: a network device, but not a docker network\n" {
+		t.Errorf("device: %d %q", st, f.err.String())
+	}
+
+	// the host's network: ipmask=, else ndbipinfo's default, the
+	// address's class
+	for _, c := range []struct{ old, new, out string }{
+		{"sys=host ip=10.99.0.1 ", "sys=host ip=10.99.0.1 ipmask=255.255.0.0 ", "--subnet 10.99.0.0/16 --gateway 10.99.0.1 "},
+		{"ipnet=p9lab ip=10.99.0.0", "ipnet=p9lab ip=10.98.0.0", "--subnet 10.0.0.0/8 --gateway 10.99.0.1 "},
+	} {
+		f = newFake(t)
+		f.fail[inspect] = errFake
+		if st := f.p9cloud("-f", testLab(t, c.old, c.new), "net", "-n"); st != 0 || !strings.Contains(f.out.String(), c.out) {
+			t.Errorf("%s: %d %q %q", c.new, st, f.out.String(), f.err.String())
+		}
+	}
+	for _, c := range []struct{ old, new, err string }{
+		{"sys=host ip=10.99.0.1 ", "sys=host ip=nope ", "p9cloud: sys=host: ip=nope: not an IPv4 address\n"},
+		{"sys=host ip=10.99.0.1 ", "sys=host ip=fd00::1 ", "p9cloud: sys=host: ip=fd00::1: not an IPv4 address\n"},
+		{"sys=host ip=10.99.0.1 ", "sys=host ", "p9cloud: sys=host: no ip= in $LAB\n"},
+		{"bridge=p9br ", "bridge= ", "p9cloud: sys=host: no bridge= in $LAB\n"},
+		{"sys=host ip=10.99.0.1 ", "sys=host ip=10.99.0.1 ipmask=nope ", "p9cloud: sys=host: ipmask=nope: not an IPv4 mask\n"},
+	} {
+		f = newFake(t)
+		path := testLab(t, c.old, c.new)
+		if st := f.p9cloud("-f", path, "net"); st != 1 || f.err.String() != strings.ReplaceAll(c.err, "$LAB", path) {
+			t.Errorf("%s: %d %q", c.new, st, f.err.String())
+		}
 	}
 }
 
@@ -752,7 +863,7 @@ func TestProvisionQemu(t *testing.T) {
 }
 
 func TestProvisionContainer(t *testing.T) {
-	path := testLab(t, "auth=10.99.0.10 ntp", "auth=10.99.0.1 ntp")
+	path := testLab(t, "auth=10.99.0.10 ntp", "auth=10.99.0.2 ntp")
 	run := "docker run --rm -e PASS -v p9lab-auth:/var/lib/9front-auth 9front-auth user roman"
 	f := newFake(t)
 	f.reply[run] = "roman: key written\n"
@@ -780,7 +891,7 @@ func TestProvisionContainerNvram(t *testing.T) {
 	noDomain := errors.New("exit status 1: 9front-auth: no domain in /var/lib/9front-auth: run init or import")
 	key := strings.Repeat("k", 512)
 	lab := func(edits ...string) (string, *fake) {
-		path := testLab(t, append([]string{"auth=10.99.0.10 ntp", "auth=10.99.0.1 ntp"}, edits...)...)
+		path := testLab(t, append([]string{"auth=10.99.0.10 ntp", "auth=10.99.0.2 ntp"}, edits...)...)
 		f := newFake(t)
 		f.reply[nvram] = key
 		return path, f
@@ -877,90 +988,11 @@ func TestProvisionContainerNvram(t *testing.T) {
 	}
 }
 
-func TestUnits(t *testing.T) {
-	path := testLab(t)
-	f := newFake(t)
-	if st := f.p9cloud("-f", path, "units"); st != 0 {
-		t.Fatalf("status %d: %s", st, f.err.String())
-	}
-	golden(t, "units", f.out.String(), filepath.Dir(path))
-
-	f = newFake(t)
-	f.self = "/tmp/go-build1234/b001/exe/p9cloud"
-	if st := f.p9cloud("-f", path, "units"); st != 1 || f.err.String() != "p9cloud: units: /tmp/go-build1234/b001/exe/p9cloud is a go run binary: go build p9cloud and run that\n" {
-		t.Errorf("go run: %d %q", st, f.err.String())
-	}
-	f = newFake(t)
-	if st := f.p9cloud("-f", path, "units", "-install"); st != 1 || f.err.String() != "p9cloud: units -install needs root: sudo /usr/local/bin/p9cloud -f "+path+" units -install\n" {
-		t.Errorf("not root: %d %q", st, f.err.String())
-	}
-
-	f = newFake(t)
-	f.euid = 0
-	f.fail["systemctl is-enabled -q p9lab-amd.service"] = errFake
-	f.fail["systemctl is-enabled -q p9lab-auth.service"] = errFake
-	if st := f.p9cloud("-f", path, "units", "--install"); st != 0 {
-		t.Fatalf("status %d: %s", st, f.err.String())
-	}
-	units := []string{"p9lab-network.service", "p9lab-fs.service", "p9lab-amd.service", "p9lab-rv.service", "p9lab-auth.service"}
-	var want strings.Builder
-	for _, u := range units {
-		want.WriteString("wrote " + filepath.Join(f.systemd, u) + "\n")
-	}
-	want.WriteString("not enabled (systemctl enable --now ...): p9lab-amd.service p9lab-auth.service\n")
-	if f.out.String() != want.String() {
-		t.Errorf("got\n%s\nwant\n%s", f.out.String(), want.String())
-	}
-	g := newFake(t)
-	g.p9cloud("-f", path, "units")
-	var all strings.Builder
-	for _, u := range units {
-		b, err := os.ReadFile(filepath.Join(f.systemd, u))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if st, _ := os.Stat(filepath.Join(f.systemd, u)); st.Mode().Perm() != 0o644 {
-			t.Errorf("%s: mode %v", u, st.Mode())
-		}
-		all.WriteString("# " + filepath.Join("/etc/systemd/system", u) + "\n" + string(b) + "\n")
-	}
-	if all.String() != g.out.String() {
-		t.Errorf("installed units differ from units' output")
-	}
-	if strings.Join(f.ran[0], " ") != "systemctl daemon-reload" || len(f.ran) != 6 {
-		t.Errorf("ran %q", f.ran)
-	}
-
-	// again: nothing to write
-	f.out = syncBuf{}
-	f.ran = nil
-	if st := f.p9cloud("-f", path, "units", "-install"); st != 0 || strings.Contains(f.out.String(), "wrote") {
-		t.Errorf("again: %d %q", st, f.out.String())
-	}
-}
-
-func TestUnitsQuoting(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "my lab")
-	os.Mkdir(dir, 0o755)
-	b, _ := os.ReadFile(testLab(t))
-	os.WriteFile(filepath.Join(dir, "p9.lab"), b, 0o644)
-	f := newFake(t)
-	if st := f.p9cloud("-f", filepath.Join(dir, "p9.lab"), "units"); st != 0 {
-		t.Fatalf("status %d: %s", st, f.err.String())
-	}
-	if want := "ExecStart=/usr/local/bin/p9cloud -f '" + dir + "/p9.lab' start fs\n"; !strings.Contains(f.out.String(), want) {
-		t.Errorf("no %q in\n%s", want, f.out.String())
-	}
-	if want := "WorkingDirectory=" + dir + "\n"; !strings.Contains(f.out.String(), want) {
-		t.Errorf("no %q", want)
-	}
-}
-
 func TestRunErrors(t *testing.T) {
 	// a command that fails reports its words and status
 	path := testLab(t)
 	f := newFake(t)
-	f.reply["docker inspect -f {{.State.Running}} p9lab-auth"] = "true\n"
+	f.reply[authStopStatus] = "running\n"
 	f.fail["docker stop p9lab-auth"] = errFake
 	if st := f.p9cloud("-f", path, "stop", "auth"); st != 1 || f.err.String() != "p9cloud: docker stop p9lab-auth: exit status 1\n" {
 		t.Errorf("%d %q", st, f.err.String())

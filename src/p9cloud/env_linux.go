@@ -18,22 +18,20 @@ func realEnv() *env {
 		self = os.Args[0]
 	}
 	return &env{
-		stdin:   os.Stdin,
-		stdout:  os.Stdout,
-		stderr:  os.Stderr,
-		getenv:  os.Getenv,
-		run:     run,
-		exec:    execv,
-		euid:    os.Geteuid(),
-		umask:   syscall.Umask,
-		sysnet:  "/sys/class/net",
-		systemd: "/etc/systemd/system",
-		self:    self,
-		sleep:   time.Sleep,
-		now:     time.Now,
-		typing:  20 * time.Millisecond,
-		rawtty:  func() (func(), error) { return rawtty(int(os.Stdin.Fd())) },
-		serve:   http.ListenAndServe,
+		stdin:  os.Stdin,
+		stdout: os.Stdout,
+		stderr: os.Stderr,
+		getenv: os.Getenv,
+		run:    run,
+		exec:   execv,
+		umask:  syscall.Umask,
+		sysnet: "/sys/class/net",
+		self:   self,
+		sleep:  time.Sleep,
+		now:    time.Now,
+		typing: 20 * time.Millisecond,
+		rawtty: func() (func(), error) { return rawtty(int(os.Stdin.Fd())) },
+		serve:  http.ListenAndServe,
 	}
 }
 

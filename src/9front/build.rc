@@ -1,0 +1,23 @@
+# termrc(8) of the machine named build (see build): makes the
+# kernel 9pc64cpuwait in a copy of /sys/src/9, writes it to the
+# first disk as a tar file and turns the machine off.
+@{
+	rfork en
+	ramfs
+	mkdir /tmp/9
+	dircp /sys/src/9 /tmp/9
+	cd /tmp/9/pc64 || exit
+
+	# the stock configuration; only the boot file system differs
+	cp pc64 pc64cpuwait
+	mk 'CONF=pc64cpuwait' >[2=1] | tee /tmp/mk.log
+
+	# mk's status is not to be trusted, and mkfs only warns of
+	# missing files (the release lacks some firmware of the stock
+	# protos, but nothing ours names may be missing)
+	if(grep -s '^(mk|mkfs: pc64cpuwait\.bootfs\.proto): ' /tmp/mk.log || ! test -f 9pc64cpuwait)
+		exit failed
+	tar c 9pc64cpuwait >/dev/sdF0/data
+}
+echo build: $status
+echo reboot >/dev/reboot

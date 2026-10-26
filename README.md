@@ -26,8 +26,9 @@ The terms are Plan 9's own, as used in ndb(6).
   `/lib/ndb/common`, e.g. `tcp=9fs port=564`.
 - **System**: a collection of services at one address, an ndb `sys=` entry.
   p9cloud starts, stops and watches systems as whole units. A system runs as
-  a virtual machine or a container. To the rest of the lab it is only an
-  address with services on it.
+  a virtual machine or a container, either way in a docker container of its
+  own at its address on the lab's docker network. To the rest of the lab it
+  is only an address with services on it.
 - **Network**: an `ipnet=` entry. It is an address range plus the attributes
   its systems share. These include which systems serve the network: `fs=`,
   `auth=`, `authdom=`, `cpu=`, `dns=` and `ntp=`.
@@ -107,7 +108,7 @@ ipnet=p9lab ip=10.99.0.0 ipmask=255.255.255.0
 
 sys=amd ip=10.99.0.11 ether=525400990011 dom=amd.p9lab
 	qemu=qemu-system-x86_64 accel=kvm cpumodel=host mem=2G smp=2
-	bootf=images/9pc64 disk=secrets/amd.nvram virtio=modern tap=p9amd
+	bootf=images/9pc64 disk=secrets/amd.nvram virtio=modern
 	ini.nvram=/dev/sdF0/data
 	ini.nobootprompt="tcp ether /net/ether0 $ip $ipmask"
 	ready=rcpu
@@ -129,7 +130,6 @@ The rest are p9cloud's:
 | `accel=`, `cpumodel=`, `mem=`, `smp=` | its accelerator, CPU model, memory and processors |
 | `disk=` | its virtio disks, `sdF0`, `sdF1`, ... in order |
 | `virtio=modern` | modern virtio devices only, without the legacy interface |
-| `tap=` | the host tap device its network card plugs into |
 | `ini.NAME=` | the plan9.ini(8) variable NAME on its kernel command line |
 | `ready=` | the services (named by `tcp=` entries) that answer once it is up |
 
@@ -203,10 +203,18 @@ console=0 sysname=amd auth=10.99.0.10 fs=10.99.0.10 service=cpu nvram=/dev/sdF0/
 ## Status
 
 - [src/p9cloud](src/p9cloud): the `p9cloud` command, in Go.  It runs a
-  lab of QEMU systems and docker containers on one Linux host, with
-  systemd units for each.
+  lab of QEMU systems and docker containers on one Linux host's docker,
+  with no root.
 - [src/docker/auth](src/docker/auth): `9front-auth`, the auth server of
   a 9front domain: one static binary in a docker image, run as a lab's
   `container=` system.
+- [src/docker/qemu](src/docker/qemu): `9front-qemu`, the unprivileged
+  QEMU process and its container-local tap/bridge setup.
+- [src/9front](src/9front): p9cloud's additions to 9front and the
+  recipe that builds its kernels: `9pc64cpuwait`, a cpu server whose
+  root comes from drawterm; root extraction and verified native-tar packaging
+  support full-source builders without duplicating runtime helpers.
+- [labs/amd64cpu-solo](labs/amd64cpu-solo): one such amd64 cpu server
+  and its auth container.
 
 Work proven earlier will be moved in piece by piece, cleaned up first.

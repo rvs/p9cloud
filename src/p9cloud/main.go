@@ -16,7 +16,8 @@ import (
 )
 
 const overview = `p9cloud runs the systems of a lab: QEMU guests (the sys= entries with
-qemu=) and docker containers (container=), on the Linux host (the sys=
+qemu=) and docker containers (container=), each in a container of its
+own on the lab's docker network, the bridge= of the Linux host (the sys=
 entry with bridge=).  The lab file, default p9.lab, is an ndb(6)
 database, read as 9front reads it: it is the systems' /lib/ndb/local
 too.  A system inherits what its entry lacks from the networks its ip
@@ -24,20 +25,21 @@ is on; ini.NAME attributes are its kernel variables.
 `
 
 const examples = `examples:
+  p9cloud net                         the lab's docker network
   p9cloud list                        the systems, running or not
   p9cloud show amd                    attributes, kernel line, QEMU command
   p9cloud show -k auth=10.99.0.1 amd  with a kernel variable changed
   p9cloud query sys amd ini.nvram     as ndb/ipquery in a guest
   p9cloud start -setup fs             fs maintenance boot, in the foreground
+  p9cloud wait fs                     until it answers
   p9cloud cpu amd                     drawterm session
   p9cloud cmd fs 'cat /dev/sysname'   one command at the serial console
-  sudo p9cloud units -install         systemd units; then
-  sudo systemctl start p9lab-amd      start, wait, stop as they do
+  p9cloud stop fs                     fshalt, then quit QEMU
 `
 
 type command struct {
 	name, usage, help string
-	flags             string // of: setup k t u n install
+	flags             string // of: setup k t u r n d
 	min, max          int    // positional arguments; max -1: any
 	extra             bool   // takes -- arguments
 	timeout           float64
@@ -47,46 +49,45 @@ type command struct {
 
 var commands = []*command{
 	{name: "list", usage: "list", run: cmdList,
-		help: "list the systems: running or not, systemd unit"},
+		help: "list the systems: running or not, their containers"},
 	{name: "show", usage: "show [-setup] [-k name=value]... sys [-- arg...]", run: cmdShow,
 		flags: "setup k", min: 1, max: 1, extra: true,
-		help: "show a system: attributes and where they come from, kernel line, command, unit"},
+		help: "show a system: attributes and where they come from, kernel line, command"},
 	{name: "query", usage: "query attr value [rattr...]", run: cmdQuery, min: 2, max: -1, db: true,
 		help: "look up attributes as ndb/ipquery does; all of them without rattr"},
-	{name: "start", usage: "start [-setup] [-k name=value]... sys [-- arg...]", run: cmdStart,
-		flags: "setup k", min: 1, max: 1, extra: true,
-		help: "run a system in the foreground, as its systemd unit does"},
+	{name: "start", usage: "start [-d] [-setup] [-k name=value]... sys [-- arg...]", run: cmdStart,
+		flags: "d setup k", min: 1, max: 1, extra: true,
+		help: "run a system's container: foreground by default, -d detaches; use wait for readiness"},
 	{name: "wait", usage: "wait [-t timeout] sys", run: cmdWait, flags: "t", min: 1, max: 1, timeout: 90,
 		help: "wait until a system accepts connections on its ready= services"},
 	{name: "stop", usage: "stop [-t timeout] sys", run: cmdStop, flags: "t", min: 1, max: 1, timeout: 90,
 		help: "stop a system: fshalt at its console, then quit QEMU; or docker stop"},
-	{name: "cpu", usage: "cpu [-u user] sys [command...]", run: cmdCpu, flags: "u", min: 1, max: -1,
+	{name: "cpu", usage: "cpu [-u user] [-r dir] sys [command...]", run: cmdCpu, flags: "u r", min: 1, max: -1,
 		help: "drawterm into a cpu server, the host's terminal= as /mnt/term; or run command"},
 	{name: "cmd", usage: "cmd [-t timeout] sys command...", run: cmdCmd, flags: "t", min: 2, max: -1, timeout: 60,
 		help: "run an rc command at a QEMU system's idle serial console"},
 	{name: "console", usage: "console sys", run: cmdConsole, min: 1, max: 1,
 		help: "attach to a QEMU system's serial console (Ctrl-] detaches); a container's log"},
 	{name: "net", usage: "net [-n]", run: cmdNet, flags: "n",
-		help: "create the host's bridge and the systems' tap devices (root)"},
+		help: "create the lab's docker network: the host's bridge=, ip= its gateway"},
 	{name: "serve", usage: "serve", run: cmdServe,
 		help: "serve the host's httpdir= over http, on its ip and http= port"},
 	{name: "provision", usage: "provision [-t timeout] nvram|user", run: cmdProvision,
 		flags: "t", min: 1, max: 1, timeout: 40,
 		help: "auth server: write its nvram, or add or rekey a user, with passwords from passwords=;\n" +
 			"an auth container: make its domain, then write the nvram disks of the VMs"},
-	{name: "units", usage: "units [-install]", run: cmdUnits, flags: "install",
-		help: "print the systemd units for the systems; -install writes them (root)"},
 	{name: "help", usage: "help [command]", max: 1,
 		help: "help for a command"},
 }
 
 var flagHelp = map[string]string{
-	"setup":   "  -setup        maintenance boot: setup.NAME replaces ini.NAME\n",
-	"k":       "  -k name=value set a kernel variable; an empty value removes it\n",
-	"t":       "  -t timeout    in seconds (default %g)\n",
-	"u":       "  -u user       the 9front user (default: the host's user=, then $USER)\n",
-	"n":       "  -n            print the commands only\n",
-	"install": "  -install      write them to /etc/systemd/system and reload systemd\n",
+	"setup": "  -setup        maintenance boot: setup.NAME replaces ini.NAME\n",
+	"k":     "  -k name=value set a kernel variable; an empty value removes it\n",
+	"t":     "  -t timeout    in seconds (default %g)\n",
+	"u":     "  -u user       the 9front user (default: the host's user=, then $USER)\n",
+	"r":     "  -r dir        export dir as /mnt/term, relative to the lab file (default: terminal=)\n",
+	"n":     "  -n            print the commands only\n",
+	"d":     "  -d            detach the container; does not imply service readiness\n",
 }
 
 // ctx is a command's invocation.
@@ -101,8 +102,9 @@ type ctx struct {
 	k       kflag
 	timeout float64
 	user    string
+	root    string
 	n       bool
-	install bool
+	detach  bool
 }
 
 type kflag []ndb.Pair
@@ -219,10 +221,12 @@ func parse(e *env, args []string) error {
 		case "u":
 			fs.StringVar(&x.user, "u", "", "")
 			fs.StringVar(&x.user, "user", "", "")
+		case "r":
+			fs.StringVar(&x.root, "r", "", "")
 		case "n":
 			fs.BoolVar(&x.n, "n", false, "")
-		case "install":
-			fs.BoolVar(&x.install, "install", false, "")
+		case "d":
+			fs.BoolVar(&x.detach, "d", false, "")
 		}
 	}
 	if err := fs.Parse(global.Args()[1:]); err != nil {

@@ -9,9 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -70,10 +68,8 @@ func newFake(t *testing.T) *fake {
 		f.execed, f.execEnv = argv, extra
 		return nil
 	}
-	f.euid = 1000
 	f.umask = func(int) int { return 0o022 }
 	f.sysnet = t.TempDir()
-	f.systemd = t.TempDir()
 	f.self = "/usr/local/bin/p9cloud"
 	f.sleep = func(d time.Duration) { f.slept += d }
 	start := time.Now()
@@ -146,17 +142,15 @@ func loadLab(t *testing.T, edits ...string) *Lab {
 }
 
 // golden compares got with testdata/golden/name, where $LAB is the lab's
-// directory, $BIN the binary, and $USER and $GROUP own the lab.
+// directory and $QEMU_USER is the uid:gid QEMU runs as.
 func golden(t *testing.T, name, got, labdir string) {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata/golden", name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	u, _ := user.Current()
-	g, _ := user.LookupGroupId(strconv.Itoa(os.Getgid()))
-	want := strings.NewReplacer("$LAB", labdir, "$BIN", "/usr/local/bin/p9cloud",
-		"$USER", u.Username, "$GROUP", g.Name).Replace(string(b))
+	want := strings.NewReplacer("$LAB", labdir,
+		"$QEMU_USER", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())).Replace(string(b))
 	if got != want {
 		gl, wl := strings.Split(got, "\n"), strings.Split(want, "\n")
 		for i := 0; i < max(len(gl), len(wl)); i++ {

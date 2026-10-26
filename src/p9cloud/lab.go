@@ -8,12 +8,10 @@ import (
 	"io/fs"
 	"math/big"
 	"os"
-	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"p9cloud/ndb"
 )
@@ -25,7 +23,8 @@ type Lab struct {
 	Dir     string    // its directory: relative file names are in it
 	Host    *System   // the Linux host: the sys= entry with bridge=
 	Systems []*System // the sys= entries with qemu= or container=
-	Prefix  string    // the host's ipnet name, for systemd unit names
+	Prefix  string    // the host's ipnet name: a VM's container is PREFIX-NAME
+	User    string    // uid:gid, which QEMU runs as in its container
 }
 
 // System is a sys= entry with what it inherits from the networks its ip
@@ -48,7 +47,8 @@ func Load(path string) (*Lab, error) {
 	if err != nil {
 		return nil, err
 	}
-	lab := &Lab{DB: db, Path: abs, Dir: filepath.Dir(abs)}
+	lab := &Lab{DB: db, Path: abs, Dir: filepath.Dir(abs),
+		User: fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())}
 	attrs := db.Attrs()
 	seen := map[string]bool{}
 	for _, e := range db.Entries {
@@ -264,25 +264,6 @@ func (lab *Lab) AuthDom() (string, error) {
 	return "", fmt.Errorf("%s: no authdom=", lab.Path)
 }
 
-// Owner returns the user and group that own the lab's directory: the
-// systemd units run as them.
-func (lab *Lab) Owner() (string, string, error) {
-	fi, err := os.Stat(lab.Dir)
-	if err != nil {
-		return "", "", err
-	}
-	st := fi.Sys().(*syscall.Stat_t)
-	u, err := user.LookupId(strconv.Itoa(int(st.Uid)))
-	if err != nil {
-		return "", "", err
-	}
-	g, err := user.LookupGroupId(strconv.Itoa(int(st.Gid)))
-	if err != nil {
-		return "", "", err
-	}
-	return u.Username, g.Name, nil
-}
-
 // All returns the values of attr.
 func (s *System) All(attr string) []string {
 	var vs []string
@@ -335,8 +316,14 @@ func (s *System) Expand(v string) (string, error) {
 	return out, err
 }
 
-// Unit is the system's systemd unit.
-func (s *System) Unit() string { return s.Lab.Prefix + "-" + s.Name + ".service" }
+// Container is the name of the system's docker container: container=,
+// else the lab's prefix and the system's name.
+func (s *System) Container() string {
+	if c, _ := s.Get("container"); c != "" {
+		return c
+	}
+	return s.Lab.Prefix + "-" + s.Name
+}
 
 // State is the directory of its sockets and console log.
 func (s *System) State() string {
@@ -435,7 +422,8 @@ func (s *System) path(attr string) (string, error) {
 
 var hex12 = regexp.MustCompile(`^[0-9a-f]{12}$`)
 
-// Qemu returns the QEMU command line.
+// Qemu returns the QEMU command line, as its container runs it: the
+// network card is on the container's tap0.
 func (s *System) Qemu(setup bool, override []ndb.Pair, extra []string) ([]string, error) {
 	qemu, err := s.Need("qemu")
 	if err != nil {
@@ -446,7 +434,7 @@ func (s *System) Qemu(setup bool, override []ndb.Pair, extra []string) ([]string
 	if modern {
 		legacy = ",disable-legacy=on"
 	}
-	a := []string{s.Lab.Prog(qemu)}
+	a := []string{qemu}
 	switch accel := s.Or("accel", "tcg"); accel {
 	case "kvm":
 		a = append(a, "-enable-kvm")
@@ -486,22 +474,20 @@ func (s *System) Qemu(setup bool, override []ndb.Pair, extra []string) ([]string
 			a = append(a, "-drive", fmt.Sprintf("file=%s,if=virtio,format=%s", f, format))
 		}
 	}
-	if tap, _ := s.Get("tap"); tap != "" {
-		ether, err := s.Need("ether")
-		if err != nil {
-			return nil, err
-		}
-		mac := strings.ToLower(ether)
-		if !hex12.MatchString(mac) {
-			return nil, fmt.Errorf("sys=%s: ether=%s: want 12 hex digits", s.Name, ether)
-		}
-		var b []string
-		for i := 0; i < 12; i += 2 {
-			b = append(b, mac[i:i+2])
-		}
-		a = append(a, "-netdev", "tap,id=lab,ifname="+tap+",script=no,downscript=no",
-			"-device", "virtio-net-pci,netdev=lab,mac="+strings.Join(b, ":")+legacy)
+	ether, err := s.Need("ether")
+	if err != nil {
+		return nil, err
 	}
+	mac := strings.ToLower(ether)
+	if !hex12.MatchString(mac) {
+		return nil, fmt.Errorf("sys=%s: ether=%s: want 12 hex digits", s.Name, ether)
+	}
+	var b []string
+	for i := 0; i < 12; i += 2 {
+		b = append(b, mac[i:i+2])
+	}
+	a = append(a, "-netdev", "tap,id=lab,ifname=tap0,script=no,downscript=no",
+		"-device", "virtio-net-pci,netdev=lab,mac="+strings.Join(b, ":")+legacy)
 	st := s.State()
 	a = append(a, "-display", "none",
 		"-monitor", "unix:"+st+"/monitor.sock,server=on,wait=off",
@@ -511,50 +497,82 @@ func (s *System) Qemu(setup bool, override []ndb.Pair, extra []string) ([]string
 	return append(a, extra...), nil
 }
 
-// Docker returns the docker run command line.
-func (s *System) Docker(extra []string) ([]string, error) {
-	c, err := s.Need("container")
+// docker is how docker run starts the system's container: on the
+// host's bridge= network, at the system's address.
+func (s *System) docker() ([]string, error) {
+	br, err := s.Lab.Host.Need("bridge")
 	if err != nil {
 		return nil, err
 	}
-	a := []string{"docker", "run", "--rm", "--name", c}
-	for _, svc := range s.All("publish") {
-		p, err := s.Lab.Port(svc)
-		if err != nil {
-			return nil, err
-		}
-		ip, err := s.Need("ip")
-		if err != nil {
-			return nil, err
-		}
-		a = append(a, "-p", fmt.Sprintf("%s:%d:%d", ip, p, p))
-	}
-	for _, v := range s.All("volume") {
-		a = append(a, "-v", v)
-	}
-	image, err := s.Need("image")
+	ip, err := s.Need("ip")
 	if err != nil {
 		return nil, err
 	}
-	return append(append(a, extra...), image), nil
+	return []string{"docker", "run", "--rm", "--name", s.Container(), "--network", br, "--ip", ip}, nil
 }
 
-// Command returns the command that runs the system.
+// Command returns the command that runs the system: docker run of its
+// image= with its volume= volumes; for a VM, of the QEMU image (image=,
+// 9front-qemu), which runs QEMU with the files it needs mounted at the
+// same paths.
 func (s *System) Command(setup bool, override []ndb.Pair, extra []string) ([]string, error) {
 	switch s.Kind {
 	case "qemu":
-		return s.Qemu(setup, override, extra)
+		q, err := s.Qemu(setup, override, extra)
+		if err != nil {
+			return nil, err
+		}
+		a, err := s.docker()
+		if err != nil {
+			return nil, err
+		}
+		a = append(a, "--cap-add", "NET_ADMIN", "--device", "/dev/net/tun")
+		if s.Or("accel", "tcg") == "kvm" {
+			a = append(a, "--device", "/dev/kvm")
+		}
+		a = append(a, "-e", "QEMU_USER="+s.Lab.User)
+		files, _ := s.Files()
+		for _, m := range append(files, Mount{s.State(), false}) {
+			a = append(a, "--mount", m.String())
+		}
+		return append(append(a, s.Or("image", "9front-qemu")), q...), nil
 	case "container":
 		if setup || override != nil {
 			return nil, fmt.Errorf("%s is a container: no kernel command line", s.Name)
 		}
-		return s.Docker(extra)
+		a, err := s.docker()
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range s.All("volume") {
+			a = append(a, "-v", v)
+		}
+		image, err := s.Need("image")
+		if err != nil {
+			return nil, err
+		}
+		return append(append(a, extra...), image), nil
 	}
 	return nil, fmt.Errorf("sys=%s has neither qemu= nor container=", s.Name)
 }
 
+// Mount is a file of the host's that a VM's container sees at the same
+// path.
+type Mount struct {
+	Path     string
+	ReadOnly bool
+}
+
+func (m Mount) String() string {
+	s := "type=bind,src=" + m.Path + ",dst=" + m.Path
+	if m.ReadOnly {
+		s += ",ro"
+	}
+	return s
+}
+
 // Files returns the files a QEMU system needs: kernel, disks, firmware.
-func (s *System) Files() ([]string, error) {
+func (s *System) Files() ([]Mount, error) {
 	if s.Kind != "qemu" {
 		return nil, nil
 	}
@@ -562,12 +580,12 @@ func (s *System) Files() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	fs := []string{bootf}
+	fs := []Mount{{bootf, true}}
 	for _, d := range s.All("disk") {
-		fs = append(fs, s.Lab.File(d))
+		fs = append(fs, Mount{s.Lab.File(d), false})
 	}
 	if v, _ := s.Get("bios"); v != "" {
-		fs = append(fs, s.Lab.File(v))
+		fs = append(fs, Mount{s.Lab.File(v), true})
 	}
 	return fs, nil
 }
@@ -593,6 +611,14 @@ func (s *System) Nvram() (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func names(ss []*System) []string {
+	var n []string
+	for _, s := range ss {
+		n = append(n, s.Name)
+	}
+	return n
 }
 
 // Needs returns the systems a QEMU system boots from: its fs= and auth=.

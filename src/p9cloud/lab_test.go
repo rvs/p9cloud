@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,14 +12,6 @@ import (
 	"p9cloud/ndb"
 )
 
-func names(ss []*System) []string {
-	var n []string
-	for _, s := range ss {
-		n = append(n, s.Name)
-	}
-	return n
-}
-
 func TestLoad(t *testing.T) {
 	lab := loadLab(t)
 	if got := names(lab.Systems); !reflect.DeepEqual(got, []string{"fs", "amd", "rv", "auth"}) {
@@ -26,6 +19,9 @@ func TestLoad(t *testing.T) {
 	}
 	if lab.Host.Name != "host" || lab.Prefix != "p9lab" {
 		t.Errorf("host %s, prefix %s", lab.Host.Name, lab.Prefix)
+	}
+	if want := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()); lab.User != want {
+		t.Errorf("user %s, want %s", lab.User, want)
 	}
 	for name, kind := range map[string]string{"fs": "qemu", "rv": "qemu", "auth": "container", "host": ""} {
 		s, err := lab.System(name, "qemu", "container", "host")
@@ -244,7 +240,7 @@ func TestQemu(t *testing.T) {
 		"-append", "console=0 sysname=rv auth=10.99.0.10 fs=10.99.0.10 service=cpu nvram=/dev/sdF0/data nobootprompt='tcp ether /net/ether0 10.99.0.12 255.255.255.0'",
 		"-drive", "file=" + filepath.Join(lab.Dir, "secrets/rv.nvram") + ",if=none,id=sdF0,format=raw",
 		"-device", "virtio-blk-pci,drive=sdF0,disable-legacy=on",
-		"-netdev", "tap,id=lab,ifname=p9rv,script=no,downscript=no",
+		"-netdev", "tap,id=lab,ifname=tap0,script=no,downscript=no",
 		"-device", "virtio-net-pci,netdev=lab,mac=52:54:00:99:00:12,disable-legacy=on",
 		"-display", "none",
 		"-monitor", "unix:" + st + "/monitor.sock,server=on,wait=off",
@@ -253,15 +249,17 @@ func TestQemu(t *testing.T) {
 	if !reflect.DeepEqual(argv, want) {
 		t.Errorf("rv:\n got %q\nwant %q", argv, want)
 	}
-	if f, _ := rv.Files(); !reflect.DeepEqual(f, []string{filepath.Join(lab.Dir, "images/9rv64"), filepath.Join(lab.Dir, "secrets/rv.nvram"), filepath.Join(lab.Dir, "images/opensbi.bin")}) {
-		t.Errorf("rv files %q", f)
+	if f, _ := rv.Files(); !reflect.DeepEqual(f, []Mount{{filepath.Join(lab.Dir, "images/9rv64"), true},
+		{filepath.Join(lab.Dir, "secrets/rv.nvram"), false}, {filepath.Join(lab.Dir, "images/opensbi.bin"), true}}) {
+		t.Errorf("rv files %v", f)
 	}
 
-	// defaults, other accelerators, absolute paths, qemuarg=, a
-	// state= of the host's, two modern disks, no network
+	// defaults, other accelerators, absolute paths, a qemu= of the
+	// image's, qemuarg=, a state= of the host's, two modern disks
 	lab = loadLab(t,
 		"accel=tcg machine=virt mem=2G smp=2", "accel=hvf",
-		"virtio=modern tap=p9rv", "disk=/abs/b.qcow2 qemuarg=-s qemuarg=-S",
+		"qemu=qemu-system-riscv64", "qemu=bin/qemu-system-riscv64",
+		"\tvirtio=modern\n", "\tvirtio=modern disk=/abs/b.qcow2 qemuarg=-s qemuarg=-S\n",
 		"bootf=images/9rv64", "bootf=/abs/9rv64",
 		"state=state", "state=/run/lab")
 	rv, _ = lab.System("rv")
@@ -270,17 +268,18 @@ func TestQemu(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Join(argv, " ")
+	// qemu= is the image's program, not a file of the lab's
+	if w := "bin/qemu-system-riscv64 -accel hvf -cpu rv64,svpbmt=true,zicbom=true -m 1G -smp 1 -bios " + lab.Dir + "/images/opensbi.bin -kernel /abs/9rv64 "; !strings.HasPrefix(got, w) {
+		t.Errorf("rv: %q\ndoes not start %q", got, w)
+	}
 	for _, w := range []string{
-		"qemu-system-riscv64 -accel hvf -cpu rv64,svpbmt=true,zicbom=true -m 1G -smp 1 -bios " + lab.Dir + "/images/opensbi.bin -kernel /abs/9rv64 ",
-		" -drive file=/abs/b.qcow2,if=none,id=sdF1,format=qcow2 -device virtio-blk-pci,drive=sdF1,disable-legacy=on -display none -monitor unix:/run/lab/rv/monitor.sock,",
+		" -drive file=/abs/b.qcow2,if=none,id=sdF1,format=qcow2 -device virtio-blk-pci,drive=sdF1,disable-legacy=on -netdev tap,",
+		" -display none -monitor unix:/run/lab/rv/monitor.sock,",
 		" -serial chardev:s -s -S",
 	} {
 		if !strings.Contains(got, w) {
 			t.Errorf("rv: %q\nlacks %q", got, w)
 		}
-	}
-	if strings.Contains(got, "-netdev") {
-		t.Errorf("rv without tap= has a network: %q", got)
 	}
 
 	for _, c := range []struct{ old, new, err string }{
@@ -305,21 +304,56 @@ func TestQemu(t *testing.T) {
 	}
 }
 
-func TestDocker(t *testing.T) {
-	lab := loadLab(t, "publish=ticket", "publish=ticket publish=8080 volume=/srv:/srv")
-	auth, _ := lab.System("auth")
-	argv, err := auth.Command(false, nil, []string{"-e", "X=1"})
+func TestCommand(t *testing.T) {
+	lab := loadLab(t)
+	amd, _ := lab.System("amd")
+	q, _ := amd.Qemu(false, nil, []string{"-s"})
+	argv, err := amd.Command(false, nil, []string{"-s"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"docker", "run", "--rm", "--name", "p9lab-auth",
-		"-p", "10.99.0.1:567:567", "-p", "10.99.0.1:8080:8080",
+	d := lab.Dir
+	want := append([]string{"docker", "run", "--rm", "--name", "p9lab-amd", "--network", "p9br", "--ip", "10.99.0.11",
+		"--cap-add", "NET_ADMIN", "--device", "/dev/net/tun", "--device", "/dev/kvm", "-e", "QEMU_USER=" + lab.User,
+		"--mount", "type=bind,src=" + d + "/images/9pc64,dst=" + d + "/images/9pc64,ro",
+		"--mount", "type=bind,src=" + d + "/secrets/amd.nvram,dst=" + d + "/secrets/amd.nvram",
+		"--mount", "type=bind,src=" + d + "/state/amd,dst=" + d + "/state/amd",
+		"9front-qemu"}, q...)
+	if !reflect.DeepEqual(argv, want) {
+		t.Errorf("amd:\n got %q\nwant %q", argv, want)
+	}
+
+	// without kvm, an image of its own, firmware
+	lab = loadLab(t, "bios=images/opensbi.bin", "image=my-qemu bios=images/opensbi.bin")
+	rv, _ := lab.System("rv")
+	argv, err = rv.Command(false, nil, nil)
+	got := strings.Join(argv, " ")
+	for _, w := range []string{
+		" --device /dev/net/tun -e QEMU_USER=",
+		" --mount type=bind,src=" + lab.Dir + "/images/opensbi.bin,dst=" + lab.Dir + "/images/opensbi.bin,ro --mount type=bind,src=" + lab.Dir + "/state/rv,",
+		" my-qemu qemu-system-riscv64 -M virt ",
+	} {
+		if err != nil || !strings.Contains(got, w) {
+			t.Errorf("rv: %q, %v\nlacks %q", got, err, w)
+		}
+	}
+	if strings.Contains(got, "kvm") {
+		t.Errorf("rv: %q has kvm", got)
+	}
+
+	lab = loadLab(t, "volume=p9lab-auth:/var/lib/9front-auth", "volume=p9lab-auth:/var/lib/9front-auth volume=/srv:/srv")
+	auth, _ := lab.System("auth")
+	argv, err = auth.Command(false, nil, []string{"-e", "X=1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"docker", "run", "--rm", "--name", "p9lab-auth", "--network", "p9br", "--ip", "10.99.0.2",
 		"-v", "p9lab-auth:/var/lib/9front-auth", "-v", "/srv:/srv", "-e", "X=1", "9front-auth"}
 	if !reflect.DeepEqual(argv, want) {
 		t.Errorf("auth:\n got %q\nwant %q", argv, want)
 	}
 	if f, err := auth.Files(); f != nil || err != nil {
-		t.Errorf("container files %q, %v", f, err)
+		t.Errorf("container files %v, %v", f, err)
 	}
 	for _, c := range []struct {
 		setup bool
@@ -329,13 +363,32 @@ func TestDocker(t *testing.T) {
 			t.Errorf("container --setup/-k: %v", err)
 		}
 	}
-	lab = loadLab(t, "publish=ticket", "publish=nope")
-	auth, _ = lab.System("auth")
-	if _, err := auth.Docker(nil); err == nil || err.Error() != "tcp=nope: no port= in "+lab.Path {
-		t.Errorf("publish=nope: %v", err)
-	}
 	if _, err := lab.Host.Command(false, nil, nil); err == nil || err.Error() != "sys=host has neither qemu= nor container=" {
 		t.Errorf("host command: %v", err)
+	}
+	for _, c := range []struct{ old, new, sys, err string }{
+		{"bridge=p9br ", "bridge= ", "amd", "sys=host: no bridge= in $LAB"},
+		{"bootf=images/9pc64 disk=secrets", "disk=secrets", "amd", "sys=amd: no bootf= in $LAB"},
+		{"sys=auth ip=10.99.0.2 ", "sys=auth ", "auth", "sys=auth: no ip= in $LAB"},
+		{"image=9front-auth", "image=", "auth", "sys=auth: no image= in $LAB"},
+	} {
+		lab := loadLab(t, c.old, c.new)
+		s, _ := lab.System(c.sys)
+		_, err := s.Command(false, nil, nil)
+		if want := strings.ReplaceAll(c.err, "$LAB", lab.Path); err == nil || err.Error() != want {
+			t.Errorf("%s -> %s: %v, want %s", c.old, c.new, err, want)
+		}
+	}
+
+	// container names: container=, else the prefix and the name
+	lab = loadLab(t, "container=p9lab-auth", "container=keys")
+	for name, want := range map[string]string{"amd": "p9lab-amd", "auth": "keys"} {
+		if s, _ := lab.System(name); s.Container() != want {
+			t.Errorf("%s: container %s, want %s", name, s.Container(), want)
+		}
+	}
+	if s, _ := loadLab(t, "container=p9lab-auth", "container=").System("auth"); s.Container() != "p9lab-auth" {
+		t.Errorf("container= empty: %s", s.Container())
 	}
 }
 
@@ -355,10 +408,10 @@ func TestNeeds(t *testing.T) {
 		}
 	}
 	// the auth server in the container
-	lab = loadLab(t, "auth=10.99.0.10 ntp", "auth=10.99.0.1 ntp")
+	lab = loadLab(t, "auth=10.99.0.10 ntp", "auth=10.99.0.2 ntp")
 	for name, want := range map[string][]string{"fs": {"auth"}, "amd": {"auth", "fs"}, "auth": nil} {
 		if got := needs(lab, name); !reflect.DeepEqual(got, want) {
-			t.Errorf("auth=10.99.0.1: %s needs %v, want %v", name, got, want)
+			t.Errorf("auth=10.99.0.2: %s needs %v, want %v", name, got, want)
 		}
 	}
 	if s, _ := lab.AuthServer(); s.Name != "auth" {
@@ -371,11 +424,11 @@ func TestNeeds(t *testing.T) {
 		!strings.Contains(err.Error(), "auth=10.99.0.99: not a qemu or container system in") {
 		t.Errorf("no auth server: %v", err)
 	}
-	if got := names(lab.At("10.99.0.1")); !reflect.DeepEqual(got, []string{"auth"}) {
-		t.Errorf("At(10.99.0.1) = %v: the host is not a system", got)
+	if got := names(lab.At("10.99.0.2")); !reflect.DeepEqual(got, []string{"auth"}) {
+		t.Errorf("At(10.99.0.2) = %v", got)
 	}
-	if u := (&System{Name: "amd", Lab: lab}).Unit(); u != "p9lab-amd.service" {
-		t.Errorf("unit %s", u)
+	if got := lab.At("10.99.0.1"); got != nil {
+		t.Errorf("At(10.99.0.1) = %v: the host is not a system", names(got))
 	}
 }
 
@@ -505,10 +558,6 @@ func TestAuthAttrs(t *testing.T) {
 	}
 	if _, err := loadLab(t, "authdom=p9lab ", "").AuthDom(); err == nil || !strings.HasSuffix(err.Error(), "p9.lab: no authdom=") {
 		t.Errorf("no authdom: %v", err)
-	}
-	u, g, err := lab.Owner()
-	if err != nil || u == "" || g == "" {
-		t.Errorf("owner %q %q %v", u, g, err)
 	}
 }
 

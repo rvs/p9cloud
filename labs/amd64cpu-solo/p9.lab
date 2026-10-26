@@ -1,0 +1,34 @@
+# amd64cpu-solo: one amd64 cpu server with no root file system of its
+# own.  It waits for drawterm, and the tree a drawterm session exports
+# (drawterm -r) is the root of the processes the session runs.  A
+# container is the domain's auth server.  This file is the root's
+# /lib/ndb/local too.
+
+database=
+	file=/net/ndb
+	file=/lib/ndb/local
+	file=/lib/ndb/common
+
+authdom=amd64solo auth=10.99.1.2
+ipnet=amd64solo ip=10.99.1.0 ipmask=255.255.255.0
+	auth=10.99.1.2
+	ini.console=0 ini.sysname=$sys ini.auth=$auth ini.service=cpu
+
+sys=host ip=10.99.1.1
+	bridge=amd64solo state=state
+	drawterm=drawterm terminal=root user=glenda
+
+sys=auth ip=10.99.1.2
+	container=amd64solo-auth image=9front-auth
+	volume=amd64solo-auth:/var/lib/9front-auth
+	ready=ticket
+
+sys=cpu ip=10.99.1.10 ether=525400990110
+	qemu=qemu-system-x86_64 accel=kvm cpumodel=host mem=512M smp=2
+	bootf=9pc64cpuwait disk=secrets/cpu.nvram virtio=modern
+	ini.nvram=/dev/sdF0/data
+	ini.nobootprompt="cpuwait ether /net/ether0 $ip $ipmask"
+	ready=rcpu
+
+tcp=ticket port=567
+tcp=rcpu port=17019

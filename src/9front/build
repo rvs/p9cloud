@@ -1,0 +1,86 @@
+#!/bin/sh
+# build kernel FILE - make the 9pc64cpuwait kernel as FILE
+# build root DIR - copy the 9front release to DIR
+# build image ROOTFS.tar TAG PROVENANCE.json - package a verified root
+#
+# The release is the root stage of the Dockerfile.  To make the
+# kernel, a QEMU machine named build boots the release's kernel with
+# its root served over 9P by a container of the build stage, which
+# adds p9cloud's kernel sources; its termrc (build.rc) makes the
+# kernel in a ramfs and writes it to a scratch disk as a tar file.
+# The machine reaches nothing but its root.
+set -eu
+usage() { echo 'usage: build [-i IMAGE] kernel FILE | root DIR | image ROOTFS.tar TAG PROVENANCE.json' >&2; exit 2; }
+image=ghcr.io/rvs/9front-amd64@sha256:e50995696fd75749ef572c5a6b145c327436d80331ab02e8bef08fbd491b2822
+override=
+while getopts 'i:' opt; do
+	case $opt in
+	i) image=$OPTARG; override=yes ;;
+	*) usage ;;
+	esac
+done
+shift $((OPTIND - 1))
+[ $# -ge 1 ] || usage
+if [ "$1" = image ]; then
+	[ $# -eq 4 ] || usage
+	exec python3 "$(dirname "$0")/image.py" -i "$image" "$2" "$3" "$4"
+fi
+[ $# -eq 2 ] || usage
+out=$(realpath -m "$2")
+cd "$(dirname "$0")"
+
+case $1 in
+root)
+	[ ! -e "$out" ] || { echo "build: $out exists" >&2; exit 1; }
+	docker build -q --build-arg BOOTSTRAP_IMAGE="$image" --target root -t p9cloud-9front-root . >/dev/null
+	c=$(docker create p9cloud-9front-root)
+	trap 'docker rm $c >/dev/null' EXIT
+	mkdir -p "$out"
+	docker cp -q $c:/9front/. "$out"
+	echo "$out"
+	exit
+	;;
+kernel)	;;
+*)	usage ;;
+esac
+
+docker build -q --build-arg BOOTSTRAP_IMAGE="$image" --target build -t p9cloud-9front-build . >/dev/null
+tmp=$(mktemp -d)
+c=$(docker run -d --rm -p 127.0.0.1::564 p9cloud-9front-build)
+trap 'docker rm -f $c >/dev/null; rm -rf $tmp' EXIT
+port=$(docker port $c 564/tcp | sed 's/.*://; q')
+
+# the release's kernel, as the image digest pins it
+docker cp -q $c:/9front/amd64/9pc64 $tmp/9pc64
+sha=7d40d3216ef5f51ab0b980e1b7bc2e94f43a889a7f59ba9c57b7e6272da8019e
+if [ -n "$override" ]; then
+	docker cp -q $c:/usr/share/9front/manifest.json $tmp/manifest.json
+	sha=$(python3 "$(pwd)/image.py" kernel-hash $tmp/manifest.json)
+fi
+echo "$sha  $tmp/9pc64" | sha256sum -c --quiet
+
+accel=tcg cpu=qemu64
+if [ -w /dev/kvm ]; then accel=kvm cpu=host; fi
+truncate -s 16M $tmp/disk
+st=0
+timeout 1200 qemu-system-x86_64 -nodefaults -no-reboot \
+	-machine pc,accel=$accel -cpu $cpu -m 1G -smp 2 \
+	-kernel $tmp/9pc64 \
+	-append "console=0 user=glenda sysname=build fs=10.0.2.100 auth=127.0.0.1 nobootprompt='tcp ether /net/ether0 10.0.2.15 255.255.255.0'" \
+	-chardev socket,id=root,host=127.0.0.1,port=$port,reconnect=1 \
+	-netdev user,id=net,restrict=on,guestfwd=tcp:10.0.2.100:564-chardev:root \
+	-device virtio-net-pci,netdev=net,disable-legacy=on \
+	-drive file=$tmp/disk,if=none,id=disk,format=raw \
+	-device virtio-blk-pci,drive=disk,disable-legacy=on \
+	-display none -serial file:$tmp/console </dev/null 2>$tmp/qemu || st=$?
+
+if ! tar -xf $tmp/disk -C $tmp 9pc64cpuwait 2>/dev/null; then
+	tr -d '\r' <$tmp/console >$tmp/log
+	grep -E '^(mk|mkfs: pc64cpuwait\.bootfs\.proto): ' $tmp/log >&2 || tail -20 $tmp/log >&2
+	grep -v 'multiboot knows VBE' $tmp/qemu >&2
+	echo "build: no kernel (qemu exit status $st)" >&2
+	exit 1
+fi
+mkdir -p "$(dirname "$out")"
+mv $tmp/9pc64cpuwait "$out"
+sha256sum "$out"

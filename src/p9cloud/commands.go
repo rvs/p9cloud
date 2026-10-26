@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,23 +36,8 @@ func (x *ctx) again(args string) string {
 }
 
 func (x *ctx) running(s *System) bool {
-	switch s.Kind {
-	case "qemu":
-		c, err := net.DialTimeout("unix", filepath.Join(s.State(), "monitor.sock"), 2*time.Second)
-		if err != nil {
-			return false
-		}
-		c.Close()
-		return true
-	case "container":
-		c, err := s.Need("container")
-		if err != nil {
-			return false
-		}
-		out, _ := x.e.run(nil, "docker", "inspect", "-f", "{{.State.Running}}", c)
-		return strings.TrimSpace(out) == "true"
-	}
-	return false
+	out, _ := x.e.run(nil, "docker", "inspect", "-f", "{{.State.Running}}", s.Container())
+	return strings.TrimSpace(out) == "true"
 }
 
 func (x *ctx) exists(name string) bool {
@@ -63,33 +49,21 @@ func (x *ctx) printf(format string, a ...any) { fmt.Fprintf(x.e.stdout, format, 
 
 func cmdList(x *ctx) error {
 	lab := x.lab
-	units := []string{lab.Prefix + "-network.service"}
-	for _, s := range lab.Systems {
-		units = append(units, s.Unit())
-	}
-	out, _ := x.e.run(nil, append([]string{"systemctl", "is-active"}, units...)...)
-	active := strings.Fields(out)
-	if len(active) != len(units) {
-		active = make([]string, len(units))
-		for i := range active {
-			active[i] = "?"
-		}
-	}
 	br := lab.Host.Or("bridge", "")
 	up := "missing"
 	if x.exists(br) {
 		up = "up"
 	}
 	rows := [][]string{
-		{"SYS", "KIND", "IP", "RUNNING", "UNIT"},
-		{lab.Host.Name, "host", lab.Host.Or("ip", ""), "bridge " + br + " " + up, units[0] + " " + active[0]},
+		{"SYS", "KIND", "IP", "RUNNING", "CONTAINER"},
+		{lab.Host.Name, "host", lab.Host.Or("ip", ""), "network " + br + " " + up, ""},
 	}
-	for i, s := range lab.Systems {
+	for _, s := range lab.Systems {
 		r := "no"
 		if x.running(s) {
 			r = "yes"
 		}
-		rows = append(rows, []string{s.Name, s.Kind, s.Or("ip", ""), r, units[i+1] + " " + active[i+1]})
+		rows = append(rows, []string{s.Name, s.Kind, s.Or("ip", ""), r, s.Container()})
 	}
 	w := make([]int, 4)
 	for _, r := range rows {
@@ -98,10 +72,11 @@ func cmdList(x *ctx) error {
 		}
 	}
 	for _, r := range rows {
+		var line string
 		for i := range w {
-			x.printf("%-*s  ", w[i], r[i])
+			line += fmt.Sprintf("%-*s  ", w[i], r[i])
 		}
-		x.printf("%s\n", r[4])
+		x.printf("%s\n", strings.TrimRight(line+r[4], " "))
 	}
 	dom, err := lab.AuthDom()
 	if err != nil {
@@ -177,14 +152,10 @@ func cmdShow(x *ctx) error {
 		if err != nil {
 			return err
 		}
-		x.printf("command:\n\t%s\nunit: %s", shjoin(argv), s.Unit())
-		for i, n := range needs {
-			if i == 0 {
-				x.printf(", needs")
-			}
-			x.printf(" %s", n.Unit())
+		x.printf("command:\n\t%s\n", shjoin(argv))
+		if needs != nil {
+			x.printf("needs: %s\n", strings.Join(names(needs), " "))
 		}
-		x.printf("\n")
 	}
 	return nil
 }
@@ -215,14 +186,14 @@ func cmdStart(x *ctx) error {
 		return err
 	}
 	for _, f := range files {
-		if _, err := os.Stat(f); err != nil {
-			return fmt.Errorf("%s: %s: no such file", s.Name, f)
+		if _, err := os.Stat(f.Path); err != nil {
+			return fmt.Errorf("%s: %s: no such file", s.Name, f.Path)
 		}
 	}
+	if br := x.lab.Host.Or("bridge", ""); !x.exists(br) {
+		return fmt.Errorf("%s: no network %s: %s", s.Name, br, x.again("net"))
+	}
 	if s.Kind == "qemu" {
-		if tap, _ := s.Get("tap"); tap != "" && !x.exists(tap) {
-			return fmt.Errorf("%s: no tap %s: sudo %s", s.Name, tap, x.again("net"))
-		}
 		x.e.umask(0o077)
 		if err := os.MkdirAll(s.State(), 0o700); err != nil {
 			return err
@@ -230,8 +201,11 @@ func cmdStart(x *ctx) error {
 		if err := os.WriteFile(filepath.Join(s.State(), "console.log"), nil, 0o600); err != nil {
 			return err
 		}
-	} else {
-		x.e.run(nil, "docker", "rm", "-f", s.Or("container", ""))
+	}
+	// a container left over, stopped
+	x.e.run(nil, "docker", "rm", "-f", s.Container())
+	if x.detach {
+		argv = append([]string{"docker", "run", "--detach"}, argv[2:]...)
 	}
 	fmt.Fprintln(x.e.stderr, shjoin(argv))
 	return x.e.exec(nil, argv...)
@@ -272,45 +246,114 @@ func cmdWait(x *ctx) error {
 	return nil
 }
 
+// stopped checks Docker itself, not an inspect error's text: a successful
+// empty listing confirms that an --rm container has disappeared.
+func (x *ctx) stopped(s *System) (bool, error) {
+	out, err := x.runx(nil, "docker", "ps", "--all", "--filter",
+		"name=^/"+regexp.QuoteMeta(s.Container())+"$", "--format", "{{.State}}")
+	if err != nil {
+		return false, err
+	}
+	switch strings.TrimSpace(out) {
+	case "", "created", "exited", "dead":
+		return true, nil
+	case "running", "paused", "restarting", "removing":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s: unexpected container state %q", s.Name, strings.TrimSpace(out))
+	}
+}
+
 func cmdStop(x *ctx) error {
 	s, err := x.lab.System(x.args[0])
 	if err != nil {
 		return err
 	}
-	if !x.running(s) {
+	stopped, err := x.stopped(s)
+	if err != nil {
+		return err
+	}
+	if stopped {
 		x.printf("%s is not running\n", s.Name)
 		return nil
 	}
 	if s.Kind == "container" {
-		c, err := s.Need("container")
+		if _, err := x.runx(nil, "docker", "stop", s.Container()); err != nil {
+			return err
+		}
+	} else {
+		monitor, err := x.haltQEMU(s)
+		if err != nil || monitor == nil {
+			return err
+		}
+		// HMP may discard queued input on disconnect. Keep the connection
+		// open until Docker confirms quit, or the bounded wait fails.
+		defer monitor.Close()
+	}
+	deadline := x.e.now().Add(seconds(x.timeout))
+	for {
+		stopped, err := x.stopped(s)
 		if err != nil {
 			return err
 		}
-		_, err = x.runx(nil, "docker", "stop", c)
-		return err
+		if stopped {
+			return nil
+		}
+		left := deadline.Sub(x.e.now())
+		if left <= 0 {
+			return fmt.Errorf("%s: not confirmed stopped after %gs; NOT forcing it", s.Name, x.timeout)
+		}
+		x.e.sleep(min(500*time.Millisecond, left))
 	}
+}
+
+// haltQEMU returns a monitor the caller must keep open through stop
+// confirmation, or nil if the guest powered off by itself after fshalt.
+func (x *ctx) haltQEMU(s *System) (net.Conn, error) {
 	c, err := x.e.dialSerial(s)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer c.Close()
 	if _, err := io.WriteString(c, "fshalt\n"); err != nil {
-		return err
+		return nil, err
 	}
 	if _, _, err := c.expect(contains("\ndone halting", false), seconds(x.timeout), x.e.stdout); err != nil {
-		return fmt.Errorf("%s did not confirm a clean halt; NOT killing QEMU. Detach other console clients, check the guest.", s.Name)
+		return nil, fmt.Errorf("%s did not confirm a clean halt; NOT killing QEMU. Detach other console clients, check the guest.", s.Name)
 	}
 	x.e.sleep(2 * time.Second)
-	m, err := net.DialTimeout("unix", filepath.Join(s.State(), "monitor.sock"), 2*time.Second)
-	if err != nil {
-		return nil
+	if stopped, err := x.stopped(s); err != nil || stopped {
+		return nil, err
 	}
-	defer m.Close()
-	m.SetDeadline(time.Now().Add(2 * time.Second))
-	m.Read(make([]byte, 8192))
-	io.WriteString(m, "quit\n")
-	x.e.sleep(200 * time.Millisecond)
-	return nil
+	// Stock fshalt can power off QEMU between this check and monitor I/O.
+	// A monitor error alone is never evidence that it has stopped.
+	var m net.Conn
+	monitorFailed := func(cause error) (net.Conn, error) {
+		if m != nil {
+			m.Close()
+		}
+		stopped, err := x.stopped(s)
+		if err != nil || stopped {
+			return nil, err
+		}
+		return nil, cause
+	}
+	m, err = net.DialTimeout("unix", filepath.Join(s.State(), "monitor.sock"), 2*time.Second)
+	if err != nil {
+		return monitorFailed(fmt.Errorf("%s: QEMU monitor: %w", s.Name, err))
+	}
+
+	if err := m.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return monitorFailed(fmt.Errorf("%s: QEMU monitor deadline: %w", s.Name, err))
+	}
+	monitor := &conn{Conn: m, e: x.e}
+	if _, _, err := monitor.expect(contains("(qemu) ", false), 2*time.Second, nil); err != nil {
+		return monitorFailed(fmt.Errorf("%s: QEMU monitor greeting: %w", s.Name, err))
+	}
+	if _, err := io.WriteString(m, "quit\n"); err != nil {
+		return monitorFailed(fmt.Errorf("%s: QEMU monitor quit: %w", s.Name, err))
+	}
+	return m, nil
 }
 
 func cmdCpu(x *ctx) error {
@@ -347,7 +390,11 @@ func cmdCpu(x *ctx) error {
 	if err != nil {
 		return err
 	}
-	term := lab.File(h.Or("terminal", "terminal"))
+	term := x.root
+	if term == "" {
+		term = h.Or("terminal", "terminal")
+	}
+	term = lab.File(term)
 	if err := os.MkdirAll(term, 0o755); err != nil {
 		return err
 	}
@@ -399,11 +446,7 @@ func cmdConsole(x *ctx) error {
 		return err
 	}
 	if s.Kind == "container" {
-		c, err := s.Need("container")
-		if err != nil {
-			return err
-		}
-		return x.e.exec(nil, "docker", "logs", "-f", c)
+		return x.e.exec(nil, "docker", "logs", "-f", s.Container())
 	}
 	c, err := x.e.dialSerial(s)
 	if err != nil {
@@ -451,9 +494,10 @@ func cmdConsole(x *ctx) error {
 	return nil
 }
 
+// cmdNet creates the lab's docker network, internal: its systems reach
+// each other and the host, which is its gateway, and nothing else.
 func cmdNet(x *ctx) error {
-	lab := x.lab
-	h := lab.Host
+	h := x.lab.Host
 	br, err := h.Need("bridge")
 	if err != nil {
 		return err
@@ -463,51 +507,35 @@ func cmdNet(x *ctx) error {
 		return err
 	}
 	addr, ok := ndb.ParseIP(ip)
-	if !ok {
-		return fmt.Errorf("sys=%s: ip=%s: not an address", h.Name, ip)
+	if !ok || !addr.IsV4() {
+		return fmt.Errorf("sys=%s: ip=%s: not an IPv4 address", h.Name, ip)
 	}
+	// ndbipinfo's default ipmask= is the address's class mask
 	mask, ok := ndb.ParseIPMask(h.Or("ipmask", ""), true)
 	if !ok {
-		mask = ndb.DefMask(addr)
+		return fmt.Errorf("sys=%s: ipmask=%s: not an IPv4 mask", h.Name, h.Or("ipmask", ""))
 	}
-	cidr := fmt.Sprintf("%s/%d", ip, ndb.PrefixLen(mask)-96)
-	owner, _, err := lab.Owner()
-	if err != nil {
-		return err
-	}
-	var cmds [][]string
-	if !x.exists(br) {
-		cmds = append(cmds, []string{"ip", "link", "add", br, "type", "bridge"})
-	}
-	if out, _ := x.e.run(nil, "ip", "-o", "-4", "addr", "show", "dev", br); !strings.Contains(out, " "+cidr+" ") {
-		cmds = append(cmds, []string{"ip", "addr", "add", cidr, "dev", br})
-	}
-	cmds = append(cmds, []string{"ip", "link", "set", br, "up"})
-	for _, s := range lab.Systems {
-		tap, _ := s.Get("tap")
-		if s.Kind != "qemu" || tap == "" {
-			continue
+	gw := netip.AddrFrom16(addr).Unmap()
+	subnet := netip.PrefixFrom(gw, ndb.PrefixLen(mask)-96).Masked().String()
+	want := subnet + " " + gw.String()
+	out, err := x.e.run(nil, "docker", "network", "inspect", "-f", "{{range .IPAM.Config}}{{.Subnet}} {{.Gateway}}{{end}}", br)
+	if err == nil {
+		if got := strings.TrimSpace(out); got != want {
+			return fmt.Errorf("docker network %s: %s; the lab wants %s", br, got, want)
 		}
-		if !x.exists(tap) {
-			cmds = append(cmds, []string{"ip", "tuntap", "add", "dev", tap, "mode", "tap", "user", owner})
-		}
-		cmds = append(cmds, []string{"ip", "link", "set", tap, "master", br}, []string{"ip", "link", "set", tap, "up"})
+		return nil
 	}
-	if !x.n && x.e.euid != 0 {
-		return fmt.Errorf("net needs root: sudo %s", x.again("net"))
+	if x.exists(br) {
+		return fmt.Errorf("%s: a network device, but not a docker network", br)
 	}
-	for _, c := range cmds {
-		x.printf("%s\n", shjoin(c))
-		if x.n {
-			continue
-		}
-		out, err := x.runx(nil, c...)
-		x.printf("%s", out)
-		if err != nil {
-			return err
-		}
+	argv := []string{"docker", "network", "create", "--internal", "--subnet", subnet, "--gateway", gw.String(),
+		"-o", "com.docker.network.bridge.name=" + br, br}
+	x.printf("%s\n", shjoin(argv))
+	if x.n {
+		return nil
 	}
-	return nil
+	_, err = x.runx(nil, argv...)
+	return err
 }
 
 func cmdServe(x *ctx) error {

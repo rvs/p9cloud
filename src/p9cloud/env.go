@@ -16,15 +16,13 @@ type env struct {
 	// output; its standard error is p9cloud's.
 	run func(extra []string, argv ...string) (string, error)
 	// exec replaces p9cloud with a command.
-	exec    func(extra []string, argv ...string) error
-	euid    int
-	umask   func(int) int
-	sysnet  string // /sys/class/net: the network devices
-	systemd string // /etc/systemd/system
-	self    string // p9cloud's binary
-	sleep   func(time.Duration)
-	now     func() time.Time
-	typing  time.Duration // between bytes typed at a console
+	exec   func(extra []string, argv ...string) error
+	umask  func(int) int
+	sysnet string // /sys/class/net: the network devices
+	self   string // p9cloud's binary
+	sleep  func(time.Duration)
+	now    func() time.Time
+	typing time.Duration // between bytes typed at a console
 	// rawtty puts the terminal in raw mode and returns what restores
 	// it; nil if standard input is not a terminal.
 	rawtty func() (func(), error)

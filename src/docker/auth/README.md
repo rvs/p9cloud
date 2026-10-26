@@ -123,18 +123,18 @@ Back it up with `export`: it is the only way into the domain.
 
 ## In a p9cloud lab
 
-A lab file runs the server as a system of its own; the first lab's
+A lab file runs the server as a system of its own; the test lab's
 entry is
 
 ```
-sys=auth ip=10.99.0.1 dom=auth.p9lab
+sys=auth ip=10.99.0.2 dom=auth.p9lab
 	container=p9lab-auth image=9front-auth
-	volume=p9lab-auth:/var/lib/9front-auth publish=ticket
+	volume=p9lab-auth:/var/lib/9front-auth
 	ready=ticket
 ```
 
-`p9cloud start auth` runs it with the ticket port published on the
-host's bridge address, and `p9cloud provision user` adds users to it.
+`p9cloud start auth` runs it at that address on the lab's docker
+network, and `p9cloud provision user` adds users to it.
 The guests use it once the lab file's `auth=` names it.
 
 That lab's domain `p9lab` lives on its fs VM (10.99.0.10). To move it

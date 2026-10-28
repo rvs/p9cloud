@@ -46,37 +46,38 @@ Run the build from the repository root. Its parts:
   the stock builds ignore them: `pc64cpuwait.bootfs.proto` is used only
   with `CONF=pc64cpuwait`.
 
-`rebuild-kernel.sh [FILE]` rebuilds the kernel with itself. It
-builds the image, boots `boot/9pc64cpuwait` with `boot/cpu.nvram` in
-qemu, its rcpu port forwarded from all of the host's addresses, and
-runs the image's `drawterm -G -c 'rc /sys/src/9/pc64/kernel.rc'` in a
-plain container, which finds the VM at its default gateway. The VM's
-root is the container's `/9front`, so `kernel.rc` builds in place:
-`cp pc64 pc64cpuwait; mk 'CONF=pc64cpuwait' install`. The script then
-copies `/9front/amd64/9pc64cpuwait` out of the container to FILE
-(default `./9pc64cpuwait`). It takes under a minute with KVM. mk's
-status comes back through drawterm, so a failed build fails the
-script. mkfs warns about the iwm firmware, which the release lacks.
-The kernel it makes boots, takes `glen||glenda` and rebuilds itself.
-It is not the same bytes as `boot/9pc64cpuwait`: kernels carry their
-build times, and that one was built from the release pinned in
-`src/9front/build`, not this image's seed.
+`rebuild.sh kernel|userland [FILE]` rebuilds on the cpuwait kernel.
+It builds the image, boots `boot/9pc64cpuwait` with `boot/cpu.nvram`
+in qemu, its rcpu port forwarded from all of the host's addresses, and
+runs the image's `drawterm -G -c CMD` in a plain container, which finds
+the VM at its default gateway. The VM's root is the container's
+`/9front`, so the build is in place. A failed command, or any mk error
+in the output, fails the script, which then keeps its temporary
+directory (output, VM console) and names it.
 
-`rebuild-userland.sh [FILE]` does the same with `rc /sys/src/build.rc`,
-which is the release's own recipe, `mk release` in `/sys/src` (nuke,
-delete the libraries, install, clean), in place, with a ramfs `/tmp`.
-The whole rebuilt `/9front` is written to FILE (default `./9front.tar`)
-with `docker cp`, so it keeps its owners. `mk release` runs each
-directory's mk in a loop and returns only the last one's status, so the
-script fails on any mk error in the output instead. It takes about nine
-minutes with KVM on two CPUs.
+- **`kernel`**: CMD is `rc /sys/src/9/pc64/kernel.rc`, that is
+  `cp pc64 pc64cpuwait; mk 'CONF=pc64cpuwait' install`. The script
+  copies `/9front/amd64/9pc64cpuwait` out of the container to FILE
+  (default `./9pc64cpuwait`). It takes under a minute with KVM. mkfs
+  warns about the iwm firmware, which the release lacks. The kernel it
+  makes boots, takes `glen||glenda` and rebuilds itself. It is not the
+  same bytes as `boot/9pc64cpuwait`: kernels carry their build times,
+  and that one was built from the release pinned in `src/9front/build`,
+  not this image's seed.
+- **`userland`**: CMD is `rc /sys/src/build.rc`, the release's own
+  recipe, `mk release` in `/sys/src` (nuke, delete the libraries,
+  install, clean), with a ramfs `/tmp`. The whole rebuilt `/9front` is
+  written to FILE (default `./9front.tar`) with `docker cp`, so it keeps
+  its owners. `mk release` runs each directory's mk in a loop and
+  returns only the last one's status, hence the check of the output.
+  It takes about nine minutes with KVM on two CPUs. Built from this
+  seed, the userland is the seed's: every binary is byte-identical
+  except `audio/mp3enc` and `cwfs64x`, which carry their build dates.
+  The libraries differ only because `ar` records times.
 
-Both scripts run drawterm as sys (`--user 110000:110000`), and drawterm
-runs with umask 002. So files that the build makes or remakes in
-`/9front` are owned by sys, mode 664 or 775, like the rest of the tree.
-Built from this seed, the userland is the seed's: every binary is
-byte-identical except `audio/mp3enc` and `cwfs64x`, which carry their
-build dates. The libraries differ only because `ar` records times.
+drawterm runs as sys (`--user 110000:110000`) with umask 002, so files
+that the builds make or remake in `/9front` are owned by sys, mode 664
+or 775, like the rest of the tree.
 
 `cpu.nvram` is the 512 bytes `auth/wrkey` would write: 9front's
 `Nvrsafe` (`authsrv.h`), then zeros. Each field has a checksum byte

@@ -1,44 +1,10 @@
 #!/bin/rc
-# Re-enter with the rebuilt rc, then build and export with rebuilt tools only.
-fn must {
-	$* || { echo FAIL $* $status; exit build }
-}
-runid=`{cat /root/work/run-id}
-must cd /sys/src/9/pc64
-must mk 'CONF=pc64' nuke
-must mk 'CONF=pc64' install
-must mk 'CONF=pc64' clean
-echo KERNEL_DONE `{date}
-must rm -f /386/9bootfat /386/9boothyb /386/9bootiso /386/9bootpxe /386/mbr /386/pbs /386/bootia32.efi /386/bootx64.efi /386/efiboot.fat /arm64/bootaa64.efi
-for(d in /sys/src/boot/pc /sys/src/boot/efi){
-	must cd $d
-	must mk clean
-	must mk install
-	must mk clean
-}
-echo BOOTLOADERS_DONE `{date}
-for(file in `{cat /root/work/required})
-	must test -s $file
-must rm -r /amd64/bootstrap-bin
-
-# Check every committed source file with the new tools, then hash the payload.
-# xargs does not propagate child errors; cmp and the line counts catch omissions.
-must cd /n/build/9front
-must xargs -n 128 sha1sum -2 256 </root/work/source.files >/tmp/source.raw
-must sed 's/	/  /' /tmp/source.raw >/tmp/source.hashes
-must sort /tmp/source.hashes >/tmp/source.sorted
-must cmp /tmp/source.sorted /root/work/source.sha256
-echo SOURCE-PASS $runid
-must walk -f >/tmp/payload.files
-must sort /tmp/payload.files >/root/work/payload.files
-must xargs -n 128 sha1sum -2 256 </root/work/payload.files >/tmp/payload.raw
-must sed 's/	/  /' /tmp/payload.raw >/root/work/payload.sha256
-must wc -l </root/work/payload.files >/tmp/files.count
-must wc -l </root/work/payload.sha256 >/tmp/hashes.count
-must cmp /tmp/files.count /tmp/hashes.count
-
-# The only transfer is the drawterm export already serving this session.
-must cd /n/build
-must tar cf /root/work/result.tar 9front
-must echo $runid >/root/work/complete
-echo BUILD-PASS $runid
+# kernel.rc: make the cpuwait kernel from /sys/src/9 and install it
+# as /amd64/9pc64cpuwait.  Its configuration is the stock pc64; the
+# name alone makes mk use pc64cpuwait.bootfs.proto for its boot
+# file system (see ../boot/bootmkfile).
+rfork e
+objtype=amd64
+cd /sys/src/9/pc64 &&
+cp pc64 pc64cpuwait &&
+mk 'CONF=pc64cpuwait' install

@@ -37,12 +37,28 @@ Run the build from the repository root. Its parts:
   well known, so the VM is for a trusted machine only.
   Both are in `boot/` here, beside the kernel's sources, copied from
   `src/9front/sys/src/9`: `pc64cpuwait.bootfs.proto`, `cpuwait.rc`,
-  `cpuwait.service` and `cpuwait.ns`; and `kernel.rc`, copied from
-  9front's `et/amd64`. The kernel and nvram go into `/boot`; the four
-  sources into `/9front/sys/src/9/boot` and `/9front/sys/src/9/pc64`,
+  `cpuwait.service` and `cpuwait.ns`; and `kernel.rc`, which builds
+  it. The kernel and nvram go into `/boot`; the sources and
+  `kernel.rc` into `/9front/sys/src/9/boot` and `/9front/sys/src/9/pc64`,
   owned by sys, mode 664, like the release's files there. None of their
   names exist in the release, and the stock kernel build ignores them:
   `pc64cpuwait.bootfs.proto` is used only with `CONF=pc64cpuwait`.
+
+`rebuild-kernel.sh [FILE]` rebuilds the kernel with itself. It
+builds the image, boots `boot/9pc64cpuwait` with `boot/cpu.nvram` in
+qemu, its rcpu port forwarded from all of the host's addresses, and
+runs the image's `drawterm -G -c 'rc /sys/src/9/pc64/kernel.rc'` in a
+plain container, which finds the VM at its default gateway. The VM's
+root is the container's `/9front`, so `kernel.rc` builds in place:
+`cp pc64 pc64cpuwait; mk 'CONF=pc64cpuwait' install`. The script then
+copies `/9front/amd64/9pc64cpuwait` out of the container to FILE
+(default `./9pc64cpuwait`). It takes under a minute with KVM. mk's
+status comes back through drawterm, so a failed build fails the
+script. mkfs warns about the iwm firmware, which the release lacks.
+The kernel it makes boots, takes `glen||glenda` and rebuilds itself.
+It is not the same bytes as `boot/9pc64cpuwait`: kernels carry their
+build times, and that one was built from the release pinned in
+`src/9front/build`, not this image's seed.
 
 `cpu.nvram` is the 512 bytes `auth/wrkey` would write: 9front's
 `Nvrsafe` (`authsrv.h`), then zeros. Each field has a checksum byte

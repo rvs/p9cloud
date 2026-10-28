@@ -1,0 +1,54 @@
+#!/bin/sh
+# Rebuild the cpuwait kernel with itself:
+#
+#	src/docker/fs/rebuild-kernel.sh [FILE]
+#
+# boots boot/9pc64cpuwait with boot/cpu.nvram in qemu, then runs the
+# 9front-fs image's drawterm against it, with the image's /9front as
+# the session's root, for one command: rc /sys/src/9/pc64/kernel.rc.
+# The new kernel lands in the container's /9front/amd64/9pc64cpuwait
+# and is copied out to FILE (default ./9pc64cpuwait).
+#
+# The VM's console log is in its temporary directory, which is kept
+# (and named) if the build fails.
+#
+# Environment: IMAGE (9front-fs, built from here first), PORT (17019,
+# forwarded from all of this host's addresses so the container can
+# reach it), PASS (glen||glenda, cpu.nvram's password).
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+out=$(realpath -m "${1:-9pc64cpuwait}")
+image=${IMAGE:-9front-fs}
+port=${PORT:-17019}
+tmp=$(mktemp -d)
+ctr=rebuild-kernel-$$
+
+die() { echo "rebuild-kernel: $*" >&2; exit 1; }
+cleanup() {
+	[ -f "$tmp/pid" ] && kill "$(cat "$tmp/pid")" 2>/dev/null
+	docker rm -f "$ctr" >/dev/null 2>&1
+	if [ -f "$tmp/ok" ]; then rm -rf "$tmp"; else echo "rebuild-kernel: see $tmp" >&2; fi
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
+
+docker build -q -t "$image" "$here" >/dev/null
+
+accel="-accel tcg"
+[ -w /dev/kvm ] && accel="-accel kvm -cpu host"
+qemu-system-x86_64 $accel -m 1G -smp 2 \
+	-kernel "$here/boot/9pc64cpuwait" \
+	-append "console=0 sysname=cpu service=cpu nvram=/dev/sdF0/data nobootprompt='cpuwait -g 10.0.2.2 ether /net/ether0 10.0.2.15 255.255.255.0'" \
+	-drive "file=$here/boot/cpu.nvram,if=none,id=nvram,format=raw,readonly=on" \
+	-device virtio-blk-pci,drive=nvram,disable-legacy=on \
+	-netdev "user,id=net,restrict=on,hostfwd=tcp:0.0.0.0:$port-:17019" \
+	-device virtio-net-pci,netdev=net,disable-legacy=on \
+	-serial "file:$tmp/console" -monitor none -display none \
+	-daemonize -pidfile "$tmp/pid" 2>"$tmp/qemu" || { cat "$tmp/qemu" >&2; die "qemu failed"; }
+
+# drawterm waits for the cpu server to answer (WAIT, 60 s)
+docker run --name "$ctr" -e "PORT=$port" -e "PASS=${PASS:-glen||glenda}" "$image" \
+	drawterm -G -c 'rc /sys/src/9/pc64/kernel.rc' </dev/null
+docker cp -q "$ctr:/9front/amd64/9pc64cpuwait" "$out" 2>/dev/null || die "no kernel"
+touch "$tmp/ok"
+sha256sum "$out"

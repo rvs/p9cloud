@@ -47,7 +47,7 @@ Run the build from the repository root. Its parts:
   the stock builds ignore them: `pc64cpuwait.bootfs.proto` is used only
   with `CONF=pc64cpuwait`.
 
-`rebuild.sh [-a OBJTYPE] [-c CONF] userland|kernel|all [FILE]`
+`rebuild.sh [-a OBJTYPE] [-c CONF] userland|kernel|all|update [FILE]`
 rebuilds on the cpuwait kernel, for any of the tree's objtypes
 (mkfile.proto's `CPUS`: 386 amd64 arm arm64 mips power power64 spim;
 default amd64). It builds the image, boots `boot/9pc64cpuwait` with
@@ -89,42 +89,78 @@ keeps its temporary directory (output, VM console) and names it.
   `mt7688` (spim); power's kernels do not build in this release.
 
 **Updating from a git repository.** With `SRC` or `REF` set, e.g.
-`REF=et src/docker/fs/rebuild.sh all`, the session first updates the
-tree's sources to commit `REF` (default `HEAD`) of the checkout `SRC`
-(default the `9front` beside `p9cloud`), the way `sysupdate` does from
-git.9front.org. The seed is a sysupdate-ready install: its
-`/9front/dist/9front/.git` is the release's repository, on `front` at
-the commit the tree is (602faae9a). The script mounts SRC's `.git`
-read-only at `/9front/dist/host/.git`; drawterm exports only `/9front`,
-so it must be under it. It then runs `rc /sys/src/sysupdate.rc` before
-the build:
+`REF=et src/docker/fs/rebuild.sh all`, the tree's sources are first
+updated to commit `REF` (default `HEAD`) of the checkout `SRC`
+(default the `9front` beside `p9cloud`), as `sysupdate` updates a
+9front install from git.9front.org; `rebuild.sh update [FILE]` does
+only that and writes the tree (default `./9front.tar`). The seed is a
+sysupdate-ready install: its `/9front/dist/9front/.git` is the
+release's repository, on `front` at the commit the tree is
+(602faae9a), which REF must descend from. Either way:
 
-- `bind -ac /dist/9front /`, which makes `/` the work tree.
-- `git/pull -u /dist/host`, with a local path as the remote, so 9front's
-  git serves it to itself (`git/serve`) and no network is needed. It
-  writes only the files that differ between the two commits, deletes
-  removed ones, and merges files edited in the tree (the seed's
-  `plan9.ini`). The tree's repository moves to REF too, so `git/log`
-  works in the result.
-- `. /sys/lib/rootstub`, the directories every objtype installs into.
-- New top-level entries can't be made in `/9front` (cdrom's, mode 555),
-  so they land in `/dist/9front` and are left out, with a
-  `sysupdate.rc: left out:` line each: `et`'s `et/`, `.github/` and
-  `AGENTS.md`. A new top-level 9front directory would be left out too.
+- only the files that differ between the two commits are written, as
+  664 or 775 (git's modes) with the time now; new files and
+  directories belong to sys, changed ones keep their owners (`adm/`'s);
+- removed files are removed;
+- files edited in the tree (the seed's `plan9.ini`) get a three-way
+  merge; a conflict fails the update;
+- the tree's repository moves to REF, so `git/log`, `git/diff` and
+  `git/walk` work in the result, as after sysupdate;
+- `/sys/lib/rootstub` makes the directories every objtype installs
+  into;
+- only commits count, not SRC's uncommitted changes.
 
-9front's git reads only loose refs (not `packed-refs`) and pulls only
-`front`, so the remote's `refs` and `HEAD` are covered by two more
-read-only mounts: one branch, `front`, at REF, whatever SRC's refs
-are. REF must descend from the seed's commit (`git/pull` would refuse
-it anyway), and SRC must be a sha1 repository. Only commits count, not
-SRC's uncommitted changes. `merge failed`, `cp failed` and `pull
-failed` fail the build. An updated kernel needs its updated userland,
-so `kernel` takes no SRC or REF; use `all`. Builds are never
-incremental: the release has no object files, and `mk release` nukes
-anyway.
+An updated kernel needs its updated userland, so `kernel` takes no SRC
+or REF; use `all`. Builds are never incremental: the release has no
+object files, and `mk release` nukes anyway.
 
-`userland` and `all` write FILE as a tar file with the Plan 9 owners:
-for amd64 the whole `/9front` (default `./9front.tar`), else
+`UPDATE` picks how:
+
+- **`host`** (the default): `sysupdate.py`, with this host's git,
+  before the VM starts, in about a second (seed to `et`: 0.9 s, against
+  about 85 s for `git`). In the idle container it reads the changed
+  files that the tree has, then writes the new ones with
+  `docker cp -a`, which makes them sys's (the container's user), and
+  chowns changed files back to their owners. Files edited in the tree
+  are merged with `git merge-file`; a conflict, or a file edited in the
+  tree but removed upstream, fails. A file changed upstream that the
+  tree lacks (the release's 23 missing awk tests) stays absent. For the
+  tree's repository it writes a pack of the new objects
+  (`git pack-objects`), `refs/heads/front`, and the `T`/`R` lines that
+  `git/branch` appends to `INDEX9`. Any repository that git reads will
+  do: packed refs, a linked worktree, a `git clone --shared` (all
+  beyond 9front's git). New top-level paths are made, as root can,
+  except those in `EXCLUDE` (default `et .github AGENTS.md`, a checkout
+  of `et`'s own), which are left out of the tree, though not of its
+  repository: `git/walk` lists them as removed.
+- **`git`**: 9front's own `git/pull`, in the session, before the build.
+  The script mounts SRC's `.git` read-only at `/9front/dist/host/.git`
+  (drawterm exports only `/9front`, so it must be under it), and runs
+  `rc /sys/src/sysupdate.rc`: `bind -ac /dist/9front /`, which makes
+  `/` the work tree, then `git/pull -u /dist/host`, with a local path
+  as the remote, so 9front's git serves it to itself (`git/serve`) and
+  no network is needed. 9front's git reads only loose refs and pulls
+  only `front`, so the remote's `refs` and `HEAD` are covered by two
+  more read-only mounts: one branch, `front`, at REF. SRC must be sha1
+  and not a shared clone (9front's git follows no alternates). New
+  top-level entries can't be made in `/9front` (cdrom's, mode 555) by
+  sys, so they land in `/dist/9front` and are all left out, with a
+  `sysupdate.rc: left out:` line each. `merge failed`, `cp failed` and
+  `pull failed` fail the build.
+
+Seed to `et`, the two trees are the same file for file, with the same
+owners and modes; they differ only in the repository's bookkeeping
+(packs, `INDEX9`'s order, `git/pull`'s `refs/remotes/THEM`). With the
+host's, 9front's `git/walk` on the result reports what the seed had
+plus `et`'s left-out paths: `M sys/lib/dist/cfg/plan9.ini`, the 23 awk
+tests, and `et/`, `.github` and `AGENTS.md` as `R`.
+
+SHA-256 repositories can't be SRC either way: one can't hold the
+seed's sha1 commit, and the tree's repository is sha1. What `host`
+lifts is the rest of what 9front's git can't read.
+
+`userland`, `all` and `update` write FILE as a tar file with the Plan 9
+owners: for amd64 (and `update`) the whole `/9front` (default `./9front.tar`), else
 `9front/OBJTYPE` and `9front/acme/bin/OBJTYPE` (default
 `./9front.OBJTYPE.tar`), which hold all that a build for the objtype
 makes, its kernel too. The container idles while drawterm runs in it

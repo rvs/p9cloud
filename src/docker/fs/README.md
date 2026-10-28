@@ -61,3 +61,15 @@ commit there, and regenerate the series:
 git am src/docker/fs/u9fs/*.patch     # in the u9fs checkout
 git format-patch --no-signature --zero-commit -o .../src/docker/fs/u9fs d65923fd17e8
 ```
+
+## Tested
+
+Against a cpuwait VM launched as `9front/et/drawterm/cpuwait.sh` does
+(QEMU with KVM, user-mode network, `hostfwd=tcp:0.0.0.0:17019`, nvram
+for glenda in authdom `cpuwait`), with this container as its only
+client on the default bridge network: no auth server, no `-v`, root
+from the image's `/9front`. `drawterm -G -c ...` and an interactive
+`drawterm -G` session (`cpu%`, then `exit`, status 0) ran on the VM
+with the cpu server found as the default gateway, or as
+`host.docker.internal` with `--add-host host.docker.internal:host-gateway`.
+A wrong `PASS` ends in `cannot read authenticator`, status 1.

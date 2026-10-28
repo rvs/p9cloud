@@ -33,6 +33,9 @@ RUN apk add --no-cache python3 socat gcompat zlib
 COPY passwd group /etc/
 # --parents: /9front keeps its own owner and mode, not just its contents
 COPY --parents --from=seed /9front /
+# the seed's riscv64 skeleton (untracked, for 9front's et branch) is
+# 755/644; group-writable like the rest, or what builds there is too
+RUN chmod -R g+w /9front/riscv64
 # the cpuwait kernel's sources, kernel.rc, which builds any kernel,
 # build.rc, which rebuilds a userland, and sysupdate.rc, which updates the
 # sources from a host repository, owned by sys like their neighbours

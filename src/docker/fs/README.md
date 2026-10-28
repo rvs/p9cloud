@@ -73,6 +73,9 @@ keeps its temporary directory (output, VM console) and names it.
   `pcc`, `nm`, `size`, `strip`, `file`), built for amd64 from the
   tree's sources. `REF=et rebuild.sh -a riscv64 userland` takes 13
   minutes: 670 riscv64 binaries, 38 scripts, 55 libraries (16 APE).
+  The seed's `/9front/riscv64` is an untracked skeleton, 755/644; the
+  Dockerfile makes it group-writable, as what is built in it inherits
+  its modes.
 - **`kernel`**: CMD is `rc /sys/src/9/kernel.rc CONF` (default
   `pc64cpuwait`). CONF is a configuration in one of the kernel
   directories (`pc64/pc64`, `arm64/qemu`, `bcm/pi2`, ...), whose mkfile
@@ -91,7 +94,15 @@ keeps its temporary directory (output, VM console) and names it.
 - **`all`**: both in one session. CONF defaults to the objtype's
   kernel: `pc64cpuwait`, `pccpuwait` (386), `qemucpuwait` (arm64,
   for `qemu-system-aarch64 -M virt`), `pi2` (arm), `indy` (mips),
-  `mt7688` (spim); power's kernels do not build in this release.
+  `mt7688` (spim), `rv64` (riscv64, et's generic kernel, for
+  `qemu-system-riscv64 -M virt`); power's kernels do not build in this
+  release. `REF=et rebuild.sh -a riscv64 all` takes ten minutes. Its
+  `9rv64` boots in `qemu-system-riscv64 -M virt -bios default -cpu
+  rv64,svpbmt=true,zicbom=true,sstc=true`, as et's `run.py test
+  --generic` boots it, with its root over 9P from this image (`fs=` and
+  a `guestfwd` to the container's port 564) holding the et tree and the
+  riscv64 userland: et's native (`jc`, `jl`), APE (`pcc`) and atomic
+  tests pass in it, ready in 10 s under TCG.
 
 **Updating from a git repository.** With `SRC` or `REF` set, e.g.
 `REF=et src/docker/fs/rebuild.sh all`, the tree's sources are first

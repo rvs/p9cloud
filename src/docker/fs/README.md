@@ -38,7 +38,11 @@ Run the build from the repository root. Its parts:
   Both are in `boot/` here, beside the kernel's sources, copied from
   `src/9front/sys/src/9`: `pc64cpuwait.bootfs.proto`, `cpuwait.rc`,
   `cpuwait.service` and `cpuwait.ns`; and `kernel.rc`, copied from
-  9front's `et/amd64`. Only the kernel and nvram go into the image.
+  9front's `et/amd64`. The kernel and nvram go into `/boot`; the four
+  sources into `/9front/sys/src/9/boot` and `/9front/sys/src/9/pc64`,
+  owned by sys, mode 664, like the release's files there. None of their
+  names exist in the release, and the stock kernel build ignores them:
+  `pc64cpuwait.bootfs.proto` is used only with `CONF=pc64cpuwait`.
 
 `cpu.nvram` is the 512 bytes `auth/wrkey` would write: 9front's
 `Nvrsafe` (`authsrv.h`), then zeros. Each field has a checksum byte

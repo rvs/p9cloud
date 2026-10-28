@@ -31,6 +31,18 @@ Run the build from the repository root. Its parts:
   their docs and `SHA256SUMS` to `/usr/local/share/doc/drawterm`.
   Docker refetches `SHA256SUMS` on every build, so a new release
   invalidates the cache by itself.
+- **`/boot`** holds a cpuwait cpu server: `9pc64cpuwait`, the kernel
+  of `src/9front/build kernel`, and `cpu.nvram`, its nvram: host owner
+  `glenda`, authdom `cpuwait`, password `glen||glenda`. That password is
+  well known, so the VM is for a trusted machine only. To remake the nvram:
+
+```sh
+docker volume create nvram
+docker run --rm -v nvram:/var/lib/9front-auth -e 'PASS=glen||glenda' 9front-auth init glenda cpuwait
+docker run --rm -v nvram:/var/lib/9front-auth 9front-auth nvram glenda >src/docker/fs/cpu.nvram
+docker volume rm nvram
+```
+
 - **`9front`**, the entrypoint, is everything else:
 
 ```

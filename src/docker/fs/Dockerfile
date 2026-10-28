@@ -33,6 +33,8 @@ RUN apk add --no-cache python3 socat gcompat zlib
 COPY passwd group /etc/
 # --parents: /9front keeps its own owner and mode, not just its contents
 COPY --parents --from=seed /9front /
+# the cpuwait cpu server: kernel, and nvram for glenda in authdom cpuwait
+COPY 9pc64cpuwait cpu.nvram /boot/
 COPY --from=u9fs /src/u9fs/u9fs /src/u9fs/9p-healthcheck /usr/local/bin/
 COPY --from=u9fs /src/u9fs/LICENSE /usr/share/licenses/u9fs/
 COPY --from=drawterm /out/ /usr/local/

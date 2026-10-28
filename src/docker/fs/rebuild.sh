@@ -30,9 +30,19 @@
 # in its output.  The output and the VM's console are in a temporary
 # directory, which is kept (and named) if the build fails.
 #
+# With SRC or REF set, the session first updates the tree's sources to
+# commit REF (default HEAD) of the git checkout SRC (default the 9front
+# beside p9cloud), as sysupdate would: rc /sys/src/sysupdate.rc, with
+# SRC's .git mounted read-only at /9front/dist/host/.git, its refs
+# replaced by one branch, front, at REF.  REF must descend from the
+# seed's commit, /9front/dist/9front/.git/refs/heads/front.  Only
+# commits count, not SRC's uncommitted changes.  An updated kernel
+# needs its updated userland, so kernel takes no SRC or REF: use all.
+#
 # Environment: IMAGE (9front-fs, built from here first), PORT (17019,
 # forwarded from all of this host's addresses so the container can
-# reach it), PASS (glen||glenda, cpu.nvram's password), MEM (1G).
+# reach it), PASS (glen||glenda, cpu.nvram's password), MEM (1G),
+# SRC and REF (above).
 set -euo pipefail
 usage() { echo "usage: $0 [-a OBJTYPE] [-c CONF] userland|kernel|all [FILE]" >&2; exit 2; }
 objtype=amd64 conf=
@@ -83,12 +93,35 @@ die() { echo "rebuild: $*" >&2; exit 1; }
 cleanup() {
 	[ -f "$tmp/pid" ] && kill "$(cat "$tmp/pid")" 2>/dev/null
 	docker rm -f "$ctr" >/dev/null 2>&1
-	if [ -f "$tmp/ok" ]; then rm -rf "$tmp"; else echo "rebuild: see $tmp" >&2; fi
+	# kept if the VM ran and the build failed
+	if [ -f "$tmp/ok" ] || [ ! -f "$tmp/pid" ]; then rm -rf "$tmp"; else echo "rebuild: see $tmp" >&2; fi
 }
 trap cleanup EXIT
 trap 'exit 1' INT TERM HUP
 
 docker build -q -t "$image" "$here" >/dev/null
+
+mounts=()
+if [ -n "${SRC:-}${REF:-}" ]; then
+	[ "$what" != kernel ] || die "an updated kernel needs its updated userland: use all"
+	src=$(realpath -m "${SRC:-$here/../../../../9front}")
+	gitdir=$(git -C "$src" rev-parse --path-format=absolute --git-common-dir) || die "SRC $src: no git checkout"
+	[ "$(git -C "$src" rev-parse --show-object-format)" = sha1 ] || die "SRC $src: 9front's git reads only sha1 repositories"
+	want=$(git -C "$src" rev-parse --verify -q "${REF:-HEAD}^{commit}") || die "REF ${REF:-HEAD}: no commit in $src"
+	seed=$(docker run --rm --entrypoint cat "$image" /9front/dist/9front/.git/refs/heads/front)
+	git -C "$src" merge-base --is-ancestor "$seed" "$want" || die "${REF:-HEAD} does not descend from the seed's $seed"
+	echo "rebuild: $seed..$want, $(git -C "$src" rev-list --count "$seed..$want") commits" >&2
+	# 9front's git reads loose refs only (not packed-refs) and the
+	# remote's front: give it one branch, front, at the commit
+	mkdir -p "$tmp/remote/refs/heads"
+	echo "$want" >"$tmp/remote/refs/heads/front"
+	echo 'ref: refs/heads/front' >"$tmp/remote/HEAD"
+	chmod -R a+rX "$tmp/remote"
+	mounts=(-v "$gitdir:/9front/dist/host/.git:ro"
+		-v "$tmp/remote/refs:/9front/dist/host/.git/refs:ro"
+		-v "$tmp/remote/HEAD:/9front/dist/host/.git/HEAD:ro")
+	cmd="rc /sys/src/sysupdate.rc && $cmd"
+fi
 
 accel="-accel tcg"
 [ -w /dev/kvm ] && accel="-accel kvm -cpu host"
@@ -106,10 +139,11 @@ qemu-system-x86_64 $accel -m "${MEM:-1G}" -smp "$(nproc)" \
 # with its tar.  drawterm waits for the cpu server to answer (WAIT,
 # 60 s); as sys, the files it makes in /9front are owned by sys, like
 # the rest of the tree.
-docker run -d --name "$ctr" --user 110000:110000 --entrypoint sleep "$image" infinity >/dev/null
+docker run -d --name "$ctr" --user 110000:110000 "${mounts[@]}" --entrypoint sleep "$image" infinity >/dev/null
 docker exec -e "PORT=$port" -e "PASS=${PASS:-glen||glenda}" "$ctr" \
 	9front drawterm -G -c "$cmd" </dev/null 2>&1 | tee "$tmp/log" || die "$what build failed"
-! tr -d '\r' <"$tmp/log" | grep -E '^mk: .*(exit status|know how|no recipe)|^bad include' >&2 || die "mk failed"
+! tr -d '\r' <"$tmp/log" | grep -E '^mk: .*(exit status|know how|no recipe)|^bad include|^(merge|cp|pull) failed' >&2 ||
+	die "$what build failed"
 if [ "$what" = kernel ]; then
 	# 9CONF, and 9CONF.u, s9CONF or 9CONF.gz, in the kernel's /$objtype
 	docker exec -w /9front "$ctr" sh -c "ls -d */9$conf */9$conf.* */s9$conf 2>/dev/null" >"$tmp/k" || :
@@ -121,7 +155,8 @@ if [ "$what" = kernel ]; then
 		sha256sum "$dest"
 	done <"$tmp/k"
 else
-	docker exec -u 0 "$ctr" tar -C / -cf - $paths >"$out" || die "cannot copy $paths"
+	# not SRC's .git, mounted at dist/host
+	docker exec -u 0 "$ctr" tar -C / --exclude=9front/dist/host -cf - $paths >"$out" || die "cannot copy $paths"
 	ls -l "$out"
 fi
 touch "$tmp/ok"

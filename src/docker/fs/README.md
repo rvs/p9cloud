@@ -37,12 +37,14 @@ Run the build from the repository root. Its parts:
   well known, so the VM is for a trusted machine only.
   Both are in `boot/` here, beside the kernel's sources, copied from
   `src/9front/sys/src/9`: `pc64cpuwait.bootfs.proto`, `cpuwait.rc`,
-  `cpuwait.service` and `cpuwait.ns`; and `kernel.rc`, which builds
-  it. The kernel and nvram go into `/boot`; the sources and
-  `kernel.rc` into `/9front/sys/src/9/boot` and `/9front/sys/src/9/pc64`,
-  owned by sys, mode 664, like the release's files there. None of their
-  names exist in the release, and the stock kernel build ignores them:
-  `pc64cpuwait.bootfs.proto` is used only with `CONF=pc64cpuwait`.
+  `cpuwait.service` and `cpuwait.ns`; `kernel.rc`, which builds it;
+  and `build.rc`, which rebuilds the userland. The kernel and nvram go
+  into `/boot`; the sources and `kernel.rc` into `/9front/sys/src/9/boot`
+  and `/9front/sys/src/9/pc64`, and `build.rc` into `/9front/sys/src`,
+  beside the mkfile it runs, all owned by sys, mode 664, like the
+  release's files there. None of their names exist in the release, and
+  the stock builds ignore them: `pc64cpuwait.bootfs.proto` is used only
+  with `CONF=pc64cpuwait`.
 
 `rebuild-kernel.sh [FILE]` rebuilds the kernel with itself. It
 builds the image, boots `boot/9pc64cpuwait` with `boot/cpu.nvram` in
@@ -59,6 +61,22 @@ The kernel it makes boots, takes `glen||glenda` and rebuilds itself.
 It is not the same bytes as `boot/9pc64cpuwait`: kernels carry their
 build times, and that one was built from the release pinned in
 `src/9front/build`, not this image's seed.
+
+`rebuild-userland.sh [FILE]` does the same with `rc /sys/src/build.rc`,
+which is the release's own recipe, `mk release` in `/sys/src` (nuke,
+delete the libraries, install, clean), in place, with a ramfs `/tmp`.
+The whole rebuilt `/9front` is written to FILE (default `./9front.tar`)
+with `docker cp`, so it keeps its owners. `mk release` runs each
+directory's mk in a loop and returns only the last one's status, so the
+script fails on any mk error in the output instead. It takes about nine
+minutes with KVM on two CPUs.
+
+Both scripts run drawterm as sys (`--user 110000:110000`), and drawterm
+runs with umask 002. So files that the build makes or remakes in
+`/9front` are owned by sys, mode 664 or 775, like the rest of the tree.
+Built from this seed, the userland is the seed's: every binary is
+byte-identical except `audio/mp3enc` and `cwfs64x`, which carry their
+build dates. The libraries differ only because `ar` records times.
 
 `cpu.nvram` is the 512 bytes `auth/wrkey` would write: 9front's
 `Nvrsafe` (`authsrv.h`), then zeros. Each field has a checksum byte

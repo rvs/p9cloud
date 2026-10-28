@@ -226,6 +226,8 @@ def drawterm(args):
 		raise Error(f"nothing answers on port {port} after {wait:g} s "
 			f"(tried: {cpu or 'host.docker.internal, the default gateway'}): is the "
 			"cpuwait VM running, with qemu's hostfwd on 0.0.0.0?")
+	# files the session makes are group-writable, as the tree's are
+	os.umask(0o002)
 	os.execv(dt, [dt, "-h", f"tcp!{host}!{port}", "-a", env("AUTH", "tcp!127.0.0.1!567"),
 		"-u", env("DTUSER", "glenda"), "-r", root, *args])
 

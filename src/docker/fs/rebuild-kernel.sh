@@ -46,8 +46,9 @@ qemu-system-x86_64 $accel -m 1G -smp 2 \
 	-serial "file:$tmp/console" -monitor none -display none \
 	-daemonize -pidfile "$tmp/pid" 2>"$tmp/qemu" || { cat "$tmp/qemu" >&2; die "qemu failed"; }
 
-# drawterm waits for the cpu server to answer (WAIT, 60 s)
-docker run --name "$ctr" -e "PORT=$port" -e "PASS=${PASS:-glen||glenda}" "$image" \
+# drawterm waits for the cpu server to answer (WAIT, 60 s); as sys, the
+# files it makes in /9front are owned by sys, like the rest of the tree
+docker run --name "$ctr" --user 110000:110000 -e "PORT=$port" -e "PASS=${PASS:-glen||glenda}" "$image" \
 	drawterm -G -c 'rc /sys/src/9/pc64/kernel.rc' </dev/null
 docker cp -q "$ctr:/9front/amd64/9pc64cpuwait" "$out" 2>/dev/null || die "no kernel"
 touch "$tmp/ok"

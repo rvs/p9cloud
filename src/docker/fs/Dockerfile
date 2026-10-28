@@ -33,10 +33,11 @@ RUN apk add --no-cache python3 socat gcompat zlib
 COPY passwd group /etc/
 # --parents: /9front keeps its own owner and mode, not just its contents
 COPY --parents --from=seed /9front /
-# the cpuwait kernel's sources and kernel.rc, which builds it, owned by
-# sys like their neighbours
+# the cpuwait kernel's sources, kernel.rc, which builds it, and build.rc,
+# which rebuilds the userland, owned by sys like their neighbours
 COPY --chown=110000:110000 --chmod=664 boot/cpuwait.rc boot/cpuwait.service boot/cpuwait.ns /9front/sys/src/9/boot/
 COPY --chown=110000:110000 --chmod=664 boot/pc64cpuwait.bootfs.proto boot/kernel.rc /9front/sys/src/9/pc64/
+COPY --chown=110000:110000 --chmod=664 boot/build.rc /9front/sys/src/
 # the cpuwait cpu server: kernel, and nvram for glenda in authdom cpuwait
 COPY boot/9pc64cpuwait boot/cpu.nvram /boot/
 COPY --from=u9fs /src/u9fs/u9fs /src/u9fs/9p-healthcheck /usr/local/bin/

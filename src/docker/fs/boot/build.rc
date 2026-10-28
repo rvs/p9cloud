@@ -1,0 +1,12 @@
+#!/bin/rc
+# build.rc: rebuild the userland from /sys/src and install it, in
+# place, with the release's own recipe (mk release: nuke, delete the
+# libraries, install, clean).  The mkfile runs each directory's mk in
+# a loop, so its status is the last one's: look for mk's errors in
+# the output instead.
+rfork en
+# scratch files go to memory, not to the tree
+ramfs -m /tmp
+objtype=amd64
+NPROC=`{wc -l </dev/sysstat}
+cd /sys/src && mk release

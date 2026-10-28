@@ -1,12 +1,20 @@
 #!/bin/rc
-# build.rc: rebuild the userland from /sys/src and install it, in
-# place, with the release's own recipe (mk release: nuke, delete the
-# libraries, install, clean).  The mkfile runs each directory's mk in
-# a loop, so its status is the last one's: look for mk's errors in
-# the output instead.
+# build.rc [objtype]: rebuild the userland for objtype (default
+# $cputype) from /sys/src and install it, in place, with the release's
+# own recipe (mk release: nuke, delete objtype's libraries, install,
+# clean).  The compilers cross-compile, so any of mkfile.proto's CPUS
+# builds here, and only /$objtype and /acme/bin/$objtype change.  The
+# mkfile runs each directory's mk in a loop, so its status is the
+# last one's: look for mk's errors in the output instead.
 rfork en
+objtype=$1
+if(~ $#objtype 0)
+	objtype=$cputype
+if(! test -f /$objtype/mkfile){
+	echo build.rc: no /$objtype/mkfile >[1=2]
+	exit objtype
+}
 # scratch files go to memory, not to the tree
 ramfs -m /tmp
-objtype=amd64
 NPROC=`{wc -l </dev/sysstat}
 cd /sys/src && mk release

@@ -1,10 +1,32 @@
 #!/bin/rc
-# kernel.rc: make the cpuwait kernel from /sys/src/9 and install it
-# as /amd64/9pc64cpuwait.  Its configuration is the stock pc64; the
-# name alone makes mk use pc64cpuwait.bootfs.proto for its boot
-# file system (see ../boot/bootmkfile).
+# kernel.rc [conf]: make the kernel conf (default pc64cpuwait) from
+# /sys/src/9 and install it in /$objtype as 9conf (with 9conf.u,
+# s9conf or 9conf.gz, as the directory's mkfile makes them).  conf is
+# a configuration of one kernel directory (pc64/pc64, arm64/qemu,
+# bcm/pi2, ...), whose mkfile sets objtype.  NAMEcpuwait is NAME with
+# the cpuwait boot file system: the name alone makes mk use
+# NAMEcpuwait.bootfs.proto (see ../boot/bootmkfile), which is
+# pc64cpuwait.bootfs.proto unless the directory has its own.  The
+# kernel links /$objtype/lib's libraries, and its boot file system
+# holds /$objtype/bin's programs: build.rc $objtype first.
 rfork e
-objtype=amd64
-cd /sys/src/9/pc64 &&
-cp pc64 pc64cpuwait &&
-mk 'CONF=pc64cpuwait' install
+conf=$1
+if(~ $#conf 0)
+	conf=pc64cpuwait
+base=`{echo $conf | sed 's/cpuwait$//'}
+dir=/sys/src/9/*/$base
+if(! ~ $#dir 1 || ! test -f $dir){
+	echo kernel.rc: no single kernel configuration $base: $dir >[1=2]
+	exit conf
+}
+cd `{basename -d $dir}
+objtype=`{sed -n 's/^objtype=//p' mkfile}
+if(! test -f /$objtype/lib/libc.a){
+	echo kernel.rc: no /$objtype/lib/libc.a: build.rc $objtype first >[1=2]
+	exit userland
+}
+if(! ~ $conf $base){
+	cp $base $conf
+	test -f $conf.bootfs.proto || cp ../pc64/pc64cpuwait.bootfs.proto $conf.bootfs.proto
+}
+mk 'CONF='^$conf install

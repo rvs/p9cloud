@@ -37,43 +37,63 @@ Run the build from the repository root. Its parts:
   well known, so the VM is for a trusted machine only.
   Both are in `boot/` here, beside the kernel's sources, copied from
   `src/9front/sys/src/9`: `pc64cpuwait.bootfs.proto`, `cpuwait.rc`,
-  `cpuwait.service` and `cpuwait.ns`; `kernel.rc`, which builds it;
-  and `build.rc`, which rebuilds the userland. The kernel and nvram go
-  into `/boot`; the sources and `kernel.rc` into `/9front/sys/src/9/boot`
-  and `/9front/sys/src/9/pc64`, and `build.rc` into `/9front/sys/src`,
-  beside the mkfile it runs, all owned by sys, mode 664, like the
+  `cpuwait.service` and `cpuwait.ns`; `kernel.rc`, which builds any
+  kernel; and `build.rc`, which rebuilds a userland. The kernel and
+  nvram go into `/boot`; the sources into `/9front/sys/src/9/boot` and
+  `/9front/sys/src/9/pc64`, `kernel.rc` into `/9front/sys/src/9`, above
+  the kernel directories, and `build.rc` into `/9front/sys/src`, beside
+  the mkfile it runs, all owned by sys, mode 664, like the
   release's files there. None of their names exist in the release, and
   the stock builds ignore them: `pc64cpuwait.bootfs.proto` is used only
   with `CONF=pc64cpuwait`.
 
-`rebuild.sh kernel|userland [FILE]` rebuilds on the cpuwait kernel.
-It builds the image, boots `boot/9pc64cpuwait` with `boot/cpu.nvram`
-in qemu, its rcpu port forwarded from all of the host's addresses, and
-runs the image's `drawterm -G -c CMD` in a plain container, which finds
-the VM at its default gateway. The VM's root is the container's
-`/9front`, so the build is in place. A failed command, or any mk error
-in the output, fails the script, which then keeps its temporary
-directory (output, VM console) and names it.
+`rebuild.sh [-a OBJTYPE] [-c CONF] userland|kernel|all [FILE]`
+rebuilds on the cpuwait kernel, for any of the tree's objtypes
+(mkfile.proto's `CPUS`: 386 amd64 arm arm64 mips power power64 spim;
+default amd64). It builds the image, boots `boot/9pc64cpuwait` with
+`boot/cpu.nvram` in qemu, its rcpu port forwarded from all of the
+host's addresses, and runs the image's `drawterm -G -c CMD` in a plain
+container, which finds the VM at its default gateway. The VM's root is
+the container's `/9front`, so the build is in place. The compilers
+cross-compile, so every objtype builds on the amd64 VM. A failed
+command, or any mk error in the output, fails the script, which then
+keeps its temporary directory (output, VM console) and names it.
 
-- **`kernel`**: CMD is `rc /sys/src/9/pc64/kernel.rc`, that is
-  `cp pc64 pc64cpuwait; mk 'CONF=pc64cpuwait' install`. The script
-  copies `/9front/amd64/9pc64cpuwait` out of the container to FILE
-  (default `./9pc64cpuwait`). It takes under a minute with KVM. mkfs
-  warns about the iwm firmware, which the release lacks. The kernel it
-  makes boots, takes `glen||glenda` and rebuilds itself. It is not the
+- **`userland`**: CMD is `rc /sys/src/build.rc OBJTYPE`, the release's
+  own recipe, `mk release` in `/sys/src` (nuke, delete the objtype's
+  libraries, install, clean), with a ramfs `/tmp`. `mk release` runs
+  each directory's mk in a loop and returns only the last one's status,
+  hence the check of the output. It takes 9 to 11 minutes with KVM on
+  two CPUs, for any objtype. Built from this seed, the amd64 userland
+  is the seed's: every binary is byte-identical except `audio/mp3enc`
+  and `cwfs64x`, which carry their build dates. The libraries differ
+  only because `ar` records times.
+- **`kernel`**: CMD is `rc /sys/src/9/kernel.rc CONF` (default
+  `pc64cpuwait`). CONF is a configuration in one of the kernel
+  directories (`pc64/pc64`, `arm64/qemu`, `bcm/pi2`, ...), whose mkfile
+  sets the objtype; `NAMEcpuwait` is `NAME` with the cpuwait boot file
+  system, from `pc64cpuwait.bootfs.proto` unless the directory has its
+  own. kernel.rc copies `NAME` to `NAMEcpuwait` and runs
+  `mk 'CONF=NAMEcpuwait' install`. The script copies `9CONF` out to
+  FILE (default `./9CONF`), and `9CONF.u`, `s9CONF` or `9CONF.gz`, if
+  the mkfile makes them, beside it. pc64cpuwait takes under a minute;
+  mkfs warns about the iwm firmware, which the release lacks. The
+  kernel boots, takes `glen||glenda` and rebuilds itself. It is not the
   same bytes as `boot/9pc64cpuwait`: kernels carry their build times,
   and that one was built from the release pinned in `src/9front/build`,
-  not this image's seed.
-- **`userland`**: CMD is `rc /sys/src/build.rc`, the release's own
-  recipe, `mk release` in `/sys/src` (nuke, delete the libraries,
-  install, clean), with a ramfs `/tmp`. The whole rebuilt `/9front` is
-  written to FILE (default `./9front.tar`) with `docker cp`, so it keeps
-  its owners. `mk release` runs each directory's mk in a loop and
-  returns only the last one's status, hence the check of the output.
-  It takes about nine minutes with KVM on two CPUs. Built from this
-  seed, the userland is the seed's: every binary is byte-identical
-  except `audio/mp3enc` and `cwfs64x`, which carry their build dates.
-  The libraries differ only because `ar` records times.
+  not this image's seed. A kernel links its objtype's libraries, and
+  the release has only amd64's, so other kernels need `all`.
+- **`all`**: both in one session. CONF defaults to the objtype's
+  kernel: `pc64cpuwait`, `pccpuwait` (386), `qemucpuwait` (arm64,
+  for `qemu-system-aarch64 -M virt`), `pi2` (arm), `indy` (mips),
+  `mt7688` (spim); power's kernels do not build in this release.
+
+`userland` and `all` write FILE as a tar file with the Plan 9 owners:
+for amd64 the whole `/9front` (default `./9front.tar`), else
+`9front/OBJTYPE` and `9front/acme/bin/OBJTYPE` (default
+`./9front.OBJTYPE.tar`), which hold all that a build for the objtype
+makes, its kernel too. The container idles while drawterm runs in it
+(`docker exec`), and its own tar writes the file.
 
 drawterm runs as sys (`--user 110000:110000`) with umask 002, so files
 that the builds make or remake in `/9front` are owned by sys, mode 664

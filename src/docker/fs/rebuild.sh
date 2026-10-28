@@ -54,10 +54,14 @@
 # An updated kernel needs its updated userland, so kernel takes no SRC
 # or REF: use all.
 #
-# Environment: IMAGE (9front-fs, built from here first), PORT (17019,
+# With COMMIT set, the build's container, its /9front built in place,
+# is committed as image COMMIT, a seed for the Dockerfile's SEED (see
+# 9front-docker-build.sh).
+#
+# Environment: IMAGE (default 9front-fs, built from here first), PORT (17019,
 # forwarded from all of this host's addresses so the container can
 # reach it), PASS (glen||glenda, cpu.nvram's password), MEM (1G),
-# SRC, REF, UPDATE and EXCLUDE (above).
+# SRC, REF, UPDATE and EXCLUDE (above), COMMIT.
 set -euo pipefail
 usage() { echo "usage: $0 [-a OBJTYPE] [-c CONF] userland|kernel|all|update [FILE]" >&2; exit 2; }
 objtype=amd64 conf=
@@ -116,7 +120,8 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' INT TERM HUP
 
-docker build -q -t "$image" "$here" >/dev/null
+# another IMAGE is taken as it is
+[ -n "${IMAGE:-}" ] || docker build -q -t "$image" "$here" >/dev/null
 
 mounts=() update=
 if [ -n "${SRC:-}${REF:-}" ] || [ "$what" = update ]; then
@@ -188,5 +193,9 @@ else
 	# not SRC's .git, mounted at dist/host
 	docker exec -u 0 "$ctr" tar -C / --exclude=9front/dist/host -cf - $paths >"$out" || die "cannot copy $paths"
 	ls -l "$out"
+fi
+if [ -n "${COMMIT:-}" ]; then
+	docker commit "$ctr" "$COMMIT" >/dev/null || die "cannot commit $COMMIT"
+	echo "rebuild: committed $COMMIT" >&2
 fi
 touch "$tmp/ok"

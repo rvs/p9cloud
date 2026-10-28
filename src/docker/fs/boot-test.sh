@@ -14,7 +14,8 @@
 #
 # all with boot/cpu.nvram.  The session's root is a 9front-fs
 # container's /9front, with TAR (a userland tar made by rebuild.sh,
-# needed but for amd64) unpacked in it, after, with SRC or REF set, its
+# needed unless the image has OBJTYPE's userland, as 9front-fs has
+# amd64's and 9front-docker-build.sh's images their own) unpacked in it, after, with SRC or REF set, its
 # sources are updated as rebuild.sh updates them (UPDATE=host only).
 # The tests, each its own drawterm session:
 #
@@ -28,7 +29,7 @@
 # The VM's console is in a temporary directory, kept (and named) if a
 # test fails.
 #
-# Environment: IMAGE (9front-fs, built from here first), PORT (17029),
+# Environment: IMAGE (default 9front-fs, built from here first), PORT (17029),
 # PASS (glen||glenda), MEM (1G), SMP (all CPUs with KVM, else 2), SRC,
 # REF and EXCLUDE (as rebuild.sh's).
 set -euo pipefail
@@ -98,9 +99,9 @@ if [ $objtype = arm64 ]; then
 	"${qemu[@]}" -machine dumpdtb="$tmp/virt.dtb" >"$tmp/qemu" 2>&1 || { cat "$tmp/qemu" >&2; die "cannot dump the DTB"; }
 	qemu+=(-device "loader,file=$tmp/virt.dtb,addr=0x40000000,force-raw=on")
 fi
-[ $objtype = amd64 ] || [ -n "$tar" ] || die "$objtype needs its userland: TAR"
 
-docker build -q -t "$image" "$here" >/dev/null
+# another IMAGE is taken as it is
+[ -n "${IMAGE:-}" ] || docker build -q -t "$image" "$here" >/dev/null
 docker run -d --name "$ctr" --user 110000:110000 --entrypoint sleep "$image" infinity >/dev/null
 if [ -n "${SRC:-}${REF:-}" ]; then
 	src=$(realpath -m "${SRC:-$here/../../../../9front}")

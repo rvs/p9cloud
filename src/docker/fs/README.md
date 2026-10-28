@@ -136,6 +136,21 @@ as in `rebuild.sh`. The script goes in `/sys/lib/boot-test.rc`, since
 drawterm covers its root's `/tmp` with its own. Environment: `IMAGE`,
 `PORT` (17029), `PASS`, `MEM`, `SMP`, `SRC`, `REF`, `EXCLUDE`.
 
+**An image built from a repository.** `9front-docker-build.sh ARCH
+REPO` makes image `9front-ARCH:latest`: this Dockerfile, with a tree
+rebuilt from REPO for its seed instead of the release's.
+`SRC=REPO COMMIT=… rebuild.sh -a ARCH all` updates the tree to REPO's
+`REF` (default `HEAD`) and builds ARCH's userland and kernel in it
+(only the userland for power and power64). `COMMIT` then makes
+`docker commit` save the build's container, whose `/9front` holds the
+result, as a temporary image. `docker build --build-arg SEED=` that
+image copies its `/9front` into the new image, and the temporary image
+is removed. The new tree's repository is at REPO's commit, so it can be
+a seed in its turn. ARCH's kernel is in the tree's `/ARCH`, so `IMAGE=9front-ARCH
+boot-test.sh` tests it with no TAR (`rebuild.sh` and `boot-test.sh`
+build only their default image, 9front-fs). Environment: `CONF`
+(`-c`), `REF`, `UPDATE`, `EXCLUDE`, `PORT`, `MEM`.
+
 **Updating from a git repository.** With `SRC` or `REF` set, e.g.
 `REF=et src/docker/fs/rebuild.sh all`, the tree's sources are first
 updated to commit `REF` (default `HEAD`) of the checkout `SRC`

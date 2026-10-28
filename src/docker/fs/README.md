@@ -50,7 +50,7 @@ Run the build from the repository root. Its parts:
 `rebuild.sh [-a OBJTYPE] [-c CONF] userland|kernel|all|update [FILE]`
 rebuilds on the cpuwait kernel, for any of the tree's objtypes
 (mkfile.proto's `CPUS`: 386 amd64 arm arm64 mips power power64 spim;
-default amd64). It builds the image, boots `boot/9pc64cpuwait` with
+default amd64), and riscv64 from 9front's `et` branch (`REF=et`). It builds the image, boots `boot/9pc64cpuwait` with
 `boot/cpu.nvram` in qemu, its rcpu port forwarded from all of the
 host's addresses, and runs the image's `drawterm -G -c CMD` in a plain
 container, which finds the VM at its default gateway. The VM's root is
@@ -68,6 +68,11 @@ keeps its temporary directory (output, VM console) and names it.
   is the seed's: every binary is byte-identical except `audio/mp3enc`
   and `cwfs64x`, which carry their build dates. The libraries differ
   only because `ar` records times.
+  A port the tree's binaries lack a compiler for (riscv64: `jc`, `ja`,
+  `jl`) first gets those, and the tools that read its objects (`ar`,
+  `pcc`, `nm`, `size`, `strip`, `file`), built for amd64 from the
+  tree's sources. `REF=et rebuild.sh -a riscv64 userland` takes 13
+  minutes: 670 riscv64 binaries, 38 scripts, 55 libraries (16 APE).
 - **`kernel`**: CMD is `rc /sys/src/9/kernel.rc CONF` (default
   `pc64cpuwait`). CONF is a configuration in one of the kernel
   directories (`pc64/pc64`, `arm64/qemu`, `bcm/pi2`, ...), whose mkfile

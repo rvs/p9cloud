@@ -76,7 +76,7 @@ case $objtype in
 amd64)   k=pc64cpuwait ;;
 386)     k=pccpuwait ;;
 arm64)   k=qemucpuwait ;;
-riscv64) k=rv64 ;;
+riscv64) k=rv64cpuwait ;;
 arm)     k=pi2 ;;
 mips)    k=indy ;;
 spim)    k=mt7688 ;;

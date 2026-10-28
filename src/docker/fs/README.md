@@ -94,16 +94,16 @@ keeps its temporary directory (output, VM console) and names it.
 - **`all`**: both in one session. CONF defaults to the objtype's
   kernel: `pc64cpuwait`, `pccpuwait` (386), `qemucpuwait` (arm64,
   for `qemu-system-aarch64 -M virt`), `pi2` (arm), `indy` (mips),
-  `mt7688` (spim), `rv64` (riscv64, et's generic kernel, for
+  `mt7688` (spim), `rv64cpuwait` (riscv64, et's generic `rv64`, for
   `qemu-system-riscv64 -M virt`); power's kernels do not build in this
-  release. `REF=et rebuild.sh -a riscv64 all` takes ten minutes. Its
+  release. `REF=et rebuild.sh -a riscv64 -c rv64 all` takes ten minutes. Its
   `9rv64` boots in `qemu-system-riscv64 -M virt -bios default -cpu
   rv64,svpbmt=true,zicbom=true,sstc=true`, as et's `run.py test
   --generic` boots it, with its root over 9P from this image (`fs=` and
   a `guestfwd` to the container's port 564) holding the et tree and the
   riscv64 userland: et's native (`jc`, `jl`), APE (`pcc`) and atomic
   tests pass in it, ready in 10 s under TCG.
-  `REF=et rebuild.sh -a riscv64 -c rv64cpuwait all` makes the cpuwait
+  `REF=et rebuild.sh -a riscv64 all` makes the cpuwait
   kernel from the same sources (the pc64 boot file system proto holds
   nothing pc64's), ten minutes. `9rv64cpuwait` boots like `9rv64`
   with pc64cpuwait's `-append`, `cpu.nvram` and `hostfwd` (2 harts,
@@ -115,6 +115,26 @@ keeps its temporary directory (output, VM console) and names it.
   glenda's profile binds `$home/bin/$cputype`, and the seed has only
   `bin/amd64`: the Dockerfile makes one, glenda's and 775, for each
   port.
+
+**Testing a kernel.** `boot-test.sh [-a OBJTYPE] KERNEL [TAR]` boots a
+cpuwait kernel in qemu with `boot/cpu.nvram` and runs four checks, each
+its own `9front drawterm` session from a container of the image:
+**login** (glenda gets OBJTYPE's shell with `PASS`), **native** (`ls` and
+`rc`, built there with OBJTYPE's own compiler from the tree's sources,
+are identical to `/OBJTYPE/bin`'s), **status** (a failing command fails
+drawterm) and **pass** (another password is refused). Only the ports qemu
+boots as they are: amd64 (`9pc64cpuwait`) and 386 (`9pccpuwait`) in
+`qemu-system-x86_64`, with KVM if it can, arm64 (`9qemucpuwait.u`) in
+`qemu-system-aarch64 -M virt-2.12,gic-version=3`, with qemu's own DTB
+dumped and loaded at 0x40000000, where the kernel reads its bootargs,
+and riscv64 (`9rv64cpuwait`) in `qemu-system-riscv64 -M virt` with
+OpenSBI. OBJTYPE defaults from the kernel's name. TAR is a userland tar
+from `rebuild.sh`, unpacked in the container's `/9front`, needed for all
+but amd64, whose userland the image has; built from other sources than
+the release's, it needs the same `SRC`/`REF`, which update the tree first
+as in `rebuild.sh`. The script goes in `/sys/lib/boot-test.rc`, since
+drawterm covers its root's `/tmp` with its own. Environment: `IMAGE`,
+`PORT` (17029), `PASS`, `MEM`, `SMP`, `SRC`, `REF`, `EXCLUDE`.
 
 **Updating from a git repository.** With `SRC` or `REF` set, e.g.
 `REF=et src/docker/fs/rebuild.sh all`, the tree's sources are first

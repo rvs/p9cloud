@@ -34,8 +34,11 @@ COPY passwd group /etc/
 # --parents: /9front keeps its own owner and mode, not just its contents
 COPY --parents --from=seed /9front /
 # the seed's riscv64 skeleton (untracked, for 9front's et branch) is
-# 755/644; group-writable like the rest, or what builds there is too
-RUN chmod -R g+w /9front/riscv64
+# 755/644; group-writable like the rest, or what builds there is too.
+# glenda's profile binds $home/bin/$cputype: one for each port, as amd64's
+RUN chmod -R g+w /9front/riscv64 \
+ && for a in 386 arm arm64 mips power power64 spim riscv64; do \
+	install -d -o 100002 -g 100002 -m 775 /9front/usr/glenda/bin/$a || exit; done
 # the cpuwait kernel's sources, kernel.rc, which builds any kernel,
 # build.rc, which rebuilds a userland, and sysupdate.rc, which updates the
 # sources from a host repository, owned by sys like their neighbours

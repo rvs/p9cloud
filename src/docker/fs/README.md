@@ -111,8 +111,10 @@ keeps its temporary directory (output, VM console) and names it.
   with the et tree and the riscv64 userland gets glenda's riscv64
   shell with `glen||glenda` and refuses another password. In it et's
   smoke, APE and atomic tests pass, and `ls` and `rc` built natively
-  are identical to the cross-built ones. glenda's profile warns that
-  there is no `/usr/glenda/bin/riscv64`.
+  are identical to the cross-built ones.
+  glenda's profile binds `$home/bin/$cputype`, and the seed has only
+  `bin/amd64`: the Dockerfile makes one, glenda's and 775, for each
+  port.
 
 **Updating from a git repository.** With `SRC` or `REF` set, e.g.
 `REF=et src/docker/fs/rebuild.sh all`, the tree's sources are first

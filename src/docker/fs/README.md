@@ -35,6 +35,10 @@ Run the build from the repository root. Its parts:
   of `src/9front/build kernel`, and `cpu.nvram`, its nvram: host owner
   `glenda`, authdom `cpuwait`, password `glen||glenda`. That password is
   well known, so the VM is for a trusted machine only.
+  Both are in `boot/` here, beside the kernel's sources, copied from
+  `src/9front/sys/src/9`: `pc64cpuwait.bootfs.proto`, `cpuwait.rc`,
+  `cpuwait.service` and `cpuwait.ns`; and `kernel.rc`, copied from
+  9front's `et/amd64`. Only the kernel and nvram go into the image.
 
 `cpu.nvram` is the 512 bytes `auth/wrkey` would write: 9front's
 `Nvrsafe` (`authsrv.h`), then zeros. Each field has a checksum byte
@@ -68,7 +72,7 @@ To remake the nvram:
 ```sh
 docker volume create nvram
 docker run --rm -v nvram:/var/lib/9front-auth -e 'PASS=glen||glenda' 9front-auth init glenda cpuwait
-docker run --rm -v nvram:/var/lib/9front-auth 9front-auth nvram glenda >src/docker/fs/cpu.nvram
+docker run --rm -v nvram:/var/lib/9front-auth 9front-auth nvram glenda >src/docker/fs/boot/cpu.nvram
 docker volume rm nvram
 ```
 

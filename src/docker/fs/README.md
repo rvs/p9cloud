@@ -34,7 +34,36 @@ Run the build from the repository root. Its parts:
 - **`/boot`** holds a cpuwait cpu server: `9pc64cpuwait`, the kernel
   of `src/9front/build kernel`, and `cpu.nvram`, its nvram: host owner
   `glenda`, authdom `cpuwait`, password `glen||glenda`. That password is
-  well known, so the VM is for a trusted machine only. To remake the nvram:
+  well known, so the VM is for a trusted machine only.
+
+`cpu.nvram` is the 512 bytes `auth/wrkey` would write: 9front's
+`Nvrsafe` (`authsrv.h`), then zeros. Each field has a checksum byte
+after it, 9 plus the sum of the field's bytes, mod 256.
+
+| Offset | Bytes | Field | Contents |
+|---|---|---|---|
+| 0 | 7+1 | `machkey` | zero: no DES (p9sk1) key; made without `-l` |
+| 8 | 7+1 | `authkey` | zero, unused (checksum 0) |
+| 16 | 14+1 | `config` | zero: no secstore key |
+| 31 | 28+1 | `authid` | `glenda`: the host owner, the user id whose key this is |
+| 60 | 48+1 | `authdom` | `cpuwait`: the authentication domain |
+| 109 | 16+1 | `aesmachkey` | `ed8193c41caab394c4947068de802873`: glenda's dp9ik key |
+| 126 | 386 | | zero |
+
+The AES key is `passtokey(2)`'s: PBKDF2-HMAC-SHA1 of `glen||glenda`
+with salt `Plan 9 key derivation`, 9001 rounds, 16 bytes:
+
+```sh
+python3 -c 'import hashlib; print(hashlib.pbkdf2_hmac("sha1", b"glen||glenda", b"Plan 9 key derivation", 9001, 16).hex())'
+```
+
+Booted with it (`nvram=/dev/sdF0/data`), the cpu server's factotum
+holds a dp9ik key for `glenda@cpuwait`, and glenda is its host owner
+(`/dev/hostowner`). That one user is all it knows. With no auth
+server, drawterm makes the tickets from the same password, so only
+glenda can log in.
+
+To remake the nvram:
 
 ```sh
 docker volume create nvram

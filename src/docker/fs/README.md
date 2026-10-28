@@ -103,6 +103,16 @@ keeps its temporary directory (output, VM console) and names it.
   a `guestfwd` to the container's port 564) holding the et tree and the
   riscv64 userland: et's native (`jc`, `jl`), APE (`pcc`) and atomic
   tests pass in it, ready in 10 s under TCG.
+  `REF=et rebuild.sh -a riscv64 -c rv64cpuwait all` makes the cpuwait
+  kernel from the same sources (the pc64 boot file system proto holds
+  nothing pc64's), ten minutes. `9rv64cpuwait` boots like `9rv64`
+  with pc64cpuwait's `-append`, `cpu.nvram` and `hostfwd` (2 harts,
+  listening in 6 s under TCG), and `9front drawterm` from a container
+  with the et tree and the riscv64 userland gets glenda's riscv64
+  shell with `glen||glenda` and refuses another password. In it et's
+  smoke, APE and atomic tests pass, and `ls` and `rc` built natively
+  are identical to the cross-built ones. glenda's profile warns that
+  there is no `/usr/glenda/bin/riscv64`.
 
 **Updating from a git repository.** With `SRC` or `REF` set, e.g.
 `REF=et src/docker/fs/rebuild.sh all`, the tree's sources are first

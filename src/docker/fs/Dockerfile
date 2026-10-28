@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# 9front-fs: the seed's 9front tree, served over 9P by a patched u9fs,
-# with the latest drawterm-kitty release and a `drawterm` command.
+# 9front-fs: the seed's /9front, served over 9P by a patched u9fs, with
+# the latest drawterm-kitty release.  Only /9front comes from the seed.
 ARG SEED=ghcr.io/rvs/9front-amd64:latest
 ARG ALPINE=alpine:3.22@sha256:822614ea121e1d40a33655081af10ef85f0aa2ab9e61f649ceaf0c651822433c
 
@@ -24,10 +24,19 @@ RUN for t in $(awk '{print $2}' SHA256SUMS); do wget -q "$DRAWTERM/$t" || exit; 
 	&& mv "$d/drawterm" "/out/bin/drawterm.${d#drawterm-kitty-*-}" || exit; done \
  && mv "$d"/* SHA256SUMS /out/share/doc/drawterm/
 
-FROM ${SEED}
+FROM ${SEED} AS seed
+
+FROM ${ALPINE}
 # the Linux drawterms are glibc binaries (libc, libm, libz only)
-RUN apk add --no-cache gcompat zlib
+RUN apk add --no-cache python3 socat gcompat zlib
+# the Linux names of the tree's Plan 9 owners, which u9fs serves
+COPY passwd group /etc/
+# --parents: /9front keeps its own owner and mode, not just its contents
+COPY --parents --from=seed /9front /
 COPY --from=u9fs /src/u9fs/u9fs /src/u9fs/9p-healthcheck /usr/local/bin/
+COPY --from=u9fs /src/u9fs/LICENSE /usr/share/licenses/u9fs/
 COPY --from=drawterm /out/ /usr/local/
-COPY 9front-entry cpuwait-drawterm cpuwait-findcpu /usr/local/bin/
-ENTRYPOINT ["/usr/local/bin/9front-entry"]
+COPY 9front /usr/local/bin/
+EXPOSE 564
+HEALTHCHECK --interval=60s --timeout=5s --start-period=5s CMD ["/usr/local/bin/9p-healthcheck"]
+ENTRYPOINT ["/usr/local/bin/9front"]

@@ -208,6 +208,9 @@ console=0 sysname=amd auth=10.99.0.10 fs=10.99.0.10 service=cpu nvram=/dev/sdF0/
 - [src/docker/auth](src/docker/auth): `9front-auth`, the auth server of
   a 9front domain: one static binary in a docker image, run as a lab's
   `container=` system.
+- [src/docker/fs](src/docker/fs): `9front-fs`, a 9front tree served
+  read-only over 9P by a patched u9fs, with the latest drawterm for
+  cpuwait sessions.
 - [src/docker/qemu](src/docker/qemu): `9front-qemu`, the unprivileged
   QEMU process and its container-local tap/bridge setup.
 - [src/9front](src/9front): p9cloud's additions to 9front and the

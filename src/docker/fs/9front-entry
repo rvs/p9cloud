@@ -1,0 +1,8 @@
+#!/bin/sh
+# `drawterm [options]` runs the cpuwait client; anything else is the
+# unchanged 9front-amd64 interface (serve, agents.md, kernel, info --json).
+if [ "${1-}" = drawterm ]; then
+	shift
+	exec /usr/local/bin/cpuwait-drawterm "$@"
+fi
+exec /usr/local/bin/serve-9front "$@"

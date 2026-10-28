@@ -1,0 +1,53 @@
+#!/bin/sh
+# drawterm to a cpuwait cpu server (9pc64cpuwait under qemu on the
+# Docker host, as in 9front et/drawterm/cpuwait.sh), exporting this
+# container's /9front as the session's root (drawterm -r).
+#
+#	docker run --rm -it [-e PASS] [-e DTKITTY] \
+#		9front-amd64:drawterm drawterm [drawterm options, e.g. -G]
+#
+# Environment:
+#	CPU	host of the cpu server (default: found, see below;
+#		qemu's hostfwd must listen on 0.0.0.0 for a bridge network)
+#	PORT	its rcpu port (17019)
+#	AUTH	auth server (tcp!127.0.0.1!567: nothing answers, so
+#		drawterm makes the tickets itself; the user must be the
+#		cpu server's host owner)
+#	DTUSER	user (glenda, the host owner of cpuwait's nvram)
+#	ROOT	tree to export (/9front)
+#	WAIT	seconds to wait for the cpu server's port (60; 0: don't)
+#	PASS	the password; if unset, drawterm asks on the tty (-it)
+#	DRAWTERM	binary (drawterm.linux-<this machine's arch>)
+set -eu
+
+die()
+{
+	echo "drawterm: $*" >&2
+	exit 1
+}
+
+case $(uname -m) in
+x86_64|amd64)	arch=amd64 ;;
+aarch64|arm64)	arch=arm64 ;;
+*)		die "no drawterm for $(uname -m)" ;;
+esac
+drawterm=${DRAWTERM:-/usr/local/bin/drawterm.linux-$arch}
+cpu=${CPU-}
+port=${PORT:-17019}
+auth=${AUTH:-tcp!127.0.0.1!567}
+user=${DTUSER:-glenda}
+root=${ROOT:-/9front}
+wait=${WAIT:-60}
+
+[ -x "$drawterm" ] || die "no $drawterm"
+[ -x "$root/amd64/bin/rc" ] || die "$root is not an amd64 9front tree: no amd64/bin/rc"
+
+# the cpu server is up once its listener accepts (cpuwait.sh watches the
+# console log for `listen started' instead; that log is on the host).
+# Without CPU, try the Docker host: host.docker.internal (Docker Desktop,
+# or --add-host=host.docker.internal:host-gateway), then the default
+# gateway (the host, on a bridge network).
+cpu=$(cpuwait-findcpu "$cpu" "$port" "$wait") ||
+	die "nothing answers on port $port after $wait s (tried: ${CPU:-host.docker.internal, the default gateway}): is the cpuwait VM running, with qemu's hostfwd on 0.0.0.0?"
+
+exec "$drawterm" -h "tcp!$cpu!$port" -a "$auth" -u "$user" -r "$root" "$@"

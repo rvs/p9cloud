@@ -1,0 +1,108 @@
+# Build ghcr.io/rvs/9front-ARCH:latest for every objtype, each from the
+# tip of aifoundry-org/9front's et branch, with
+# src/docker/fs/9front-docker-build.sh, one job for each arch in parallel.
+name: 9front images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/docker/fs/**
+      - .github/workflows/9front-images.yml
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: aifoundry-org/9front branch, tag or commit
+        default: et
+      arches:
+        description: objtypes, separated by spaces
+        default: 386 amd64 arm arm64 mips power power64 riscv64 spim
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: 9front-images
+  cancel-in-progress: false
+
+env:
+  SOURCE: aifoundry-org/9front
+  REGISTRY: ghcr.io/rvs
+
+jobs:
+  source:
+    # one commit for all the jobs, however the branch moves meanwhile
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.tip.outputs.sha }}
+      arches: ${{ steps.tip.outputs.arches }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE }}
+          ref: ${{ inputs.ref || 'et' }}
+      - id: tip
+        env:
+          ARCHES: ${{ inputs.arches || '386 amd64 arm arm64 mips power power64 riscv64 spim' }}
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+          echo "arches=$(jq -cn --arg a "$ARCHES" '$a | split(" ") | map(select(. != ""))')" >>"$GITHUB_OUTPUT"
+          git log -1 --oneline
+
+  image:
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.source.outputs.arches) }}
+    env:
+      ARCH: ${{ matrix.arch }}
+      SHA: ${{ needs.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: p9cloud
+      # all of its history: the tree is updated from the seed's commit
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE }}
+          ref: ${{ needs.source.outputs.sha }}
+          fetch-depth: 0
+          path: 9front
+      - name: KVM and qemu
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -q
+          sudo apt-get install -qy --no-install-recommends qemu-system-x86
+          test -w /dev/kvm
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Build 9front-${{ matrix.arch }}
+        run: p9cloud/src/docker/fs/9front-docker-build.sh "$ARCH" 9front
+      - name: Push
+        run: |
+          image=$REGISTRY/9front-$ARCH
+          docker build -t "$image:latest" -t "$image:${SHA::12}" - <<END
+          FROM 9front-$ARCH:latest
+          LABEL org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY \
+                org.opencontainers.image.title="9front $ARCH" \
+                org.opencontainers.image.description="9front's $ARCH userland and kernel, built from $SOURCE $SHA, served over 9P by u9fs" \
+                org.opencontainers.image.revision=$SHA
+          END
+          docker push --all-tags "$image"
+      # rebuild.sh keeps its VM's console when the build fails
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-${{ matrix.arch }}
+          path: /tmp/tmp.*/console
+          if-no-files-found: ignore

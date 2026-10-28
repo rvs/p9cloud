@@ -12,9 +12,10 @@ docker run --rm -it 9front-fs drawterm      # rcpu to a cpuwait server, -r /9fro
 
 Run the build from the repository root. Its parts:
 
-- **The seed**, `ghcr.io/rvs/9front-amd64:latest` (`--build-arg
-  SEED=`), supplies `/9front` and nothing else; this recipe does not
-  build it. `COPY --parents` keeps the owner and mode of `/9front`
+- **The seed**, `ghcr.io/rvs/9front-amd64:latest` pinned by digest
+  (`--build-arg SEED=`), supplies `/9front` and nothing else; this
+  recipe does not build it. The digest is the 9front release's image:
+  the workflow below publishes its own builds under the same name. `COPY --parents` keeps the owner and mode of `/9front`
   itself. `passwd` and `group` name the tree's numeric owners (sys,
   glenda, ...) for u9fs, so they must match the seed's ids.
 - **u9fs** is built from `unofficial-mirror/u9fs`, pinned by commit,
@@ -150,6 +151,19 @@ a seed in its turn. ARCH's kernel is in the tree's `/ARCH`, so `IMAGE=9front-ARC
 boot-test.sh` tests it with no TAR (`rebuild.sh` and `boot-test.sh`
 build only their default image, 9front-fs). Environment: `CONF`
 (`-c`), `REF`, `UPDATE`, `EXCLUDE`, `PORT`, `MEM`.
+
+**GitHub Actions.** `.github/workflows/9front-images.yml`, run on a
+push to `main` that touches this directory or by hand (Actions → 9front
+images → Run workflow, with a ref of `aifoundry-org/9front`, default
+`et`, and a list of objtypes, default all nine), resolves the ref to one
+commit and runs `9front-docker-build.sh` for each objtype in its own
+job, in parallel, on a KVM-enabled `ubuntu-24.04` runner. Each image is
+pushed as `ghcr.io/rvs/9front-ARCH`, tagged `latest` and with the
+commit's first 12 hex digits, and labelled with it. The workflow logs in
+with `GHCR_TOKEN` if the repository has that secret (a token that can
+write rvs's packages), else with `GITHUB_TOKEN`, which can write only
+packages that grant this repository access. A failed build's VM console
+is uploaded.
 
 **Updating from a git repository.** With `SRC` or `REF` set, e.g.
 `REF=et src/docker/fs/rebuild.sh all`, the tree's sources are first

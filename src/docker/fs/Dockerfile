@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # 9front-fs: the seed's /9front, served over 9P by a patched u9fs, with
 # the latest drawterm-kitty release.  Only /9front comes from the seed.
-ARG SEED=ghcr.io/rvs/9front-amd64:latest
+ARG SEED=ghcr.io/rvs/9front-amd64:latest@sha256:131b06bdc301a87c1e861e548a79e08f81ce52afe3297b6258f08a63dab194d2
 ARG ALPINE=alpine:3.22@sha256:822614ea121e1d40a33655081af10ef85f0aa2ab9e61f649ceaf0c651822433c
 
 FROM ${ALPINE} AS u9fs

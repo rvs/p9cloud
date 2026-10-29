@@ -45,6 +45,7 @@ shift $((OPTIND - 1))
 [ $# -ge 1 ] && [ $# -le 2 ] || usage
 kernel=$(realpath "$1") tar=${2:+$(realpath "$2")}
 [ -f "$kernel" ] || usage
+[ -z "$tar" ] || [ -f "$tar" ] || { echo "boot-test: no TAR $tar" >&2; exit 1; }
 if [ -z "$objtype" ]; then
 	case $(basename "$kernel") in
 	9pc64*) objtype=amd64 ;;
@@ -147,7 +148,9 @@ echo "boot-test: $objtype $(basename "$kernel"): listening in $((SECONDS - t0)) 
 dt() { docker exec -e "PORT=$port" -e "PASS=$1" "$ctr" 9front drawterm -G -c "$2" </dev/null 2>&1 | tr -d '\r'; }
 dt "$pass" "rc /sys/lib/boot-test.rc $objtype" | tee "$tmp/log" || die "login or native failed"
 grep -q '^boot-test: ok native' "$tmp/log" || die "login or native failed"
-if dt "$pass" 'exit fail' >"$tmp/log"; then die "status: a failing command succeeded"; fi
+if dt "$pass" 'echo boot-test: in; exit fail' >"$tmp/log"; then die "status: a failing command succeeded"; fi
+# failed for the command, not for want of a session
+grep -q '^boot-test: in' "$tmp/log" || { cat "$tmp/log" >&2; die "status: no session"; }
 echo "boot-test: ok status"
 if dt "not-$pass" 'echo in' >"$tmp/log"; then die "pass: another password got in"; fi
 grep -q 'cannot read authenticator' "$tmp/log" || { cat "$tmp/log" >&2; die "pass: not refused"; }

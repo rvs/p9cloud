@@ -8,7 +8,8 @@
 # last one's: look for mk's errors in the output instead.
 #
 # A port newer than the tree's binaries (riscv64, from 9front's et
-# branch) has no compiler in /$cputype/bin yet: then its assembler,
+# branch) has no compiler in $path yet (spim's are /rc/bin scripts
+# running mips's with -l or -L): then its assembler,
 # compiler and loader (from objtype's mkfile), and the tools that
 # read its objects (ar, pcc, nm, size, strip, file, by libmach), are
 # built for $cputype first, with the tree's own libraries.
@@ -25,7 +26,7 @@ ramfs -m /tmp
 NPROC=`{wc -l </dev/sysstat}
 cc=`{sed -n 's/^CC=//p' /$objtype/mkfile}
 tools=`{sed -n 's/^(AS|CC|LD)=//p' /$objtype/mkfile}
-if(! test -x /$cputype/bin/$cc) @{
+if(! whatis $cc >/dev/null >[2=1]) @{
 	# @ shares the environment: keep objtype from leaking out
 	rfork e
 	objtype=$cputype

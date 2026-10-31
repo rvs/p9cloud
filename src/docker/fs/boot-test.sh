@@ -139,7 +139,7 @@ EOF
 t0=$SECONDS
 "${qemu[@]}" -serial "file:$tmp/console" -daemonize -pidfile "$tmp/pid" 2>"$tmp/qemu" ||
 	{ cat "$tmp/qemu" >&2; die "qemu failed"; }
-until grep -qa 'listen started' "$tmp/console"; do
+until grep -qaE 'listen( [^ ]+)? started' "$tmp/console"; do
 	[ $((SECONDS - t0)) -lt 300 ] || { tail -20 "$tmp/console" >&2; die "no listener in 300 s"; }
 	sleep 1
 done

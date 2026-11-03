@@ -95,10 +95,14 @@ keeps its temporary directory (output, VM console) and names it.
 - **`all`**: both in one session. CONF defaults to the objtype's
   kernel: `pc64cpuwait`, `pccpuwait` (386), `qemucpuwait` (arm64,
   for `qemu-system-aarch64 -M virt`), `pi2` (arm), `indy` (mips),
-  `mt7688` (spim), `rv64cpuwait` (riscv64, et's generic `rv64`, for
+  `mt7688` (spim), `rva23cpuwait` (riscv64, et's generic `rva23`, for
   `qemu-system-riscv64 -M virt`); power's kernels do not build in this
-  release. `REF=et rebuild.sh -a riscv64 -c rv64 all` takes ten minutes. Its
-  `9rv64` boots in `qemu-system-riscv64 -M virt -bios default -cpu
+  release. et's 0df53e6a4 renamed `sys/src/9/riscv64` to `rva23` and
+  its `rv64` to `rva23`: an older tree needs `-c rv64cpuwait`, and the
+  kernels below were `9rv64` and `9rv64cpuwait` when they were tested.
+  The objtype is still riscv64. `REF=et rebuild.sh -a riscv64 -c
+  rva23 all` takes ten minutes. Its `9rva23` boots in
+  `qemu-system-riscv64 -M virt -bios default -cpu
   rv64,svpbmt=true,zicbom=true,sstc=true`, as et's `run.py test
   --generic` boots it, with its root over 9P from this image (`fs=` and
   a `guestfwd` to the container's port 564) holding the et tree and the
@@ -106,7 +110,7 @@ keeps its temporary directory (output, VM console) and names it.
   tests pass in it, ready in 10 s under TCG.
   `REF=et rebuild.sh -a riscv64 all` makes the cpuwait
   kernel from the same sources (the pc64 boot file system proto holds
-  nothing pc64's), ten minutes. `9rv64cpuwait` boots like `9rv64`
+  nothing pc64's), ten minutes. `9rva23cpuwait` boots like `9rva23`
   with pc64cpuwait's `-append`, `cpu.nvram` and `hostfwd` (2 harts,
   listening in 6 s under TCG), and `9front drawterm` from a container
   with the et tree and the riscv64 userland gets glenda's riscv64
@@ -128,11 +132,11 @@ boots as they are: amd64 (`9pc64cpuwait`) and 386 (`9pccpuwait`) in
 `qemu-system-x86_64`, with KVM if it can, arm64 (`9qemucpuwait.u`) in
 `qemu-system-aarch64 -M virt-2.12,gic-version=3`, with qemu's own DTB
 dumped and loaded at 0x40000000, where the kernel reads its bootargs,
-and riscv64 (`9rv64cpuwait`) in `qemu-system-riscv64 -M virt` with
-OpenSBI. OBJTYPE defaults from the kernel's name. TAR is a userland tar
-from `rebuild.sh`, unpacked in the container's `/9front`, needed for all
-but amd64, whose userland the image has; built from other sources than
-the release's, it needs the same `SRC`/`REF`, which update the tree first
+and riscv64 (`9rva23cpuwait`, `9rv64cpuwait` before et's rename) in
+`qemu-system-riscv64 -M virt` with OpenSBI. OBJTYPE defaults from the
+kernel's name. TAR is a userland tar from `rebuild.sh`, unpacked in the
+container's `/9front`, needed for all but amd64, whose userland the
+image has; built from other sources than the release's, it needs the same `SRC`/`REF`, which update the tree first
 as in `rebuild.sh`. The script goes in `/sys/lib/boot-test.rc`, since
 drawterm covers its root's `/tmp` with its own. Environment: `IMAGE`,
 `PORT` (17029), `PASS`, `MEM`, `SMP`, `SRC`, `REF`, `EXCLUDE`.

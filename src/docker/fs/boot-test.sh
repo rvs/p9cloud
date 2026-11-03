@@ -10,7 +10,8 @@
 #	386      9pccpuwait     qemu-system-x86_64 (KVM if it can)
 #	arm64    9qemucpuwait   qemu-system-aarch64 -M virt, its .u
 #	                        (uImage) beside it, the DTB at RAM's start
-#	riscv64  9rv64cpuwait   qemu-system-riscv64 -M virt, OpenSBI
+#	riscv64  9rva23cpuwait  qemu-system-riscv64 -M virt, OpenSBI
+#	         (9rv64cpuwait before et's rename)
 #
 # all with boot/cpu.nvram.  The session's root is a 9front-fs
 # container's /9front, with TAR (a userland tar made by rebuild.sh,
@@ -51,7 +52,7 @@ if [ -z "$objtype" ]; then
 	9pc64*) objtype=amd64 ;;
 	9pc*)   objtype=386 ;;
 	9qemu*) objtype=arm64 ;;
-	9rv64*) objtype=riscv64 ;;
+	9rv64*|9rva23*) objtype=riscv64 ;;
 	*) echo "boot-test: $kernel: which objtype? -a" >&2; usage ;;
 	esac
 fi
